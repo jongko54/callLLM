@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "call-llm-api"
+version = "0.1.0"
+description = "Layered FastAPI skeleton for an LLM and agent-ready backend."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiosqlite>=0.21,<1.0",
+  "fastapi>=0.115,<1.0",
+  "greenlet>=3.2,<4.0",
+  "httpx>=0.28,<1.0",
+  "pydantic-settings>=2.8,<3.0",
+  "redis>=6.0,<7.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn[standard]>=0.35,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0",
+]
+postgres = [
+  "asyncpg>=0.30,<1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/call_llm_api"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "backend/src",
+]

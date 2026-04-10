@@ -1,0 +1,19 @@
+from typing import Protocol
+
+from call_llm_api.domain.models import RunRecord, ThreadRecord
+
+
+class RunRepository(Protocol):
+  async def save(self, run: RunRecord) -> RunRecord: ...
+
+  async def get(self, run_id: str) -> RunRecord | None: ...
+
+  async def list_runs(self) -> list[RunRecord]: ...
+
+
+class ThreadRepository(Protocol):
+  async def save(self, thread: ThreadRecord) -> ThreadRecord: ...
+
+  async def get(self, thread_id: str) -> ThreadRecord | None: ...
+
+  async def list_threads(self) -> list[ThreadRecord]: ...
