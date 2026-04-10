@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Chat</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-block">
+          <p class="brand-title">LLM Chat</p>
+          <p class="brand-subtitle" id="status-text">연결 확인 중</p>
+        </div>
+        <button class="ghost-button" id="reset-button" type="button">새 대화</button>
+      </header>
+
+      <section class="chat-shell">
+        <div class="message-list" id="message-list" aria-live="polite"></div>
+      </section>
+
+      <form class="composer" id="composer-form">
+        <label class="composer-box" for="composer-input">
+          <textarea
+            id="composer-input"
+            rows="1"
+            placeholder="메시지를 입력하세요"
+            autocomplete="off"
+          ></textarea>
+          <div class="composer-actions">
+            <span class="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span>
+            <button class="send-button" id="send-button" type="submit">전송</button>
+          </div>
+        </label>
+      </form>
+    </main>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-meta"></div>
+        <div class="message-bubble"></div>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
