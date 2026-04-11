@@ -29,7 +29,7 @@
 ## Quick start
 
 ```bash
-cd /Users/jongho/workspace/callLLM
+cd callLLM
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -45,6 +45,7 @@ ssh -N -L 18001:10.43.230.206:8000 -p 9454 evo@116.37.208.45
 ```
 
 If you are using a different local or hosted model server, change `CALL_LLM_PROVIDER_BASE_URL` in `.env`.
+If `CALL_LLM_DATABASE_URL` is left unset, the backend uses the default local SQLite file under `storage/call_llm.db`.
 
 Open:
 
@@ -80,7 +81,7 @@ Run the focused backend regression tests with:
 
 ```bash
 source .venv/bin/activate
-pytest
+python -m pytest
 ```
 
 The current test coverage is intentionally small and protects the last breakage:
