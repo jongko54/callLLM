@@ -3,21 +3,13 @@ const API_CONFIG = {
   systemPrompt:
     "당신은 한국어로 답하는 도움이 되는 AI 어시스턴트다. 사용자의 맥락을 이어서 자연스럽게 대화하고, 불필요한 장식 없이 명확하게 답한다.",
   streamRuns: true,
-  legacyApiKey: "local-dev-token",
   backendCandidates: [
     "http://127.0.0.1:8000/api",
     "http://localhost:8000/api",
   ],
-  directCandidates: [
-    "http://127.0.0.1:18001",
-    "http://localhost:18001",
-    "http://127.0.0.1:8001",
-    "http://localhost:8001",
-  ],
 };
 
 const THREAD_STORAGE_KEY = "llm-chat-thread-id-v1";
-const API_BASE_STORAGE_KEY = "llm-chat-api-base-v1";
 
 const elements = {
   form: document.querySelector("#composer-form"),
@@ -62,9 +54,8 @@ function getConfiguredApiBase() {
   const queryValue =
     params.get("apiBase") || params.get("llmApiBase") || params.get("providerBase") || "";
   const injectedValue = normalizeBaseUrl(window.__CALL_LLM_CONFIG__?.apiBase);
-  const storedValue = normalizeBaseUrl(localStorage.getItem(API_BASE_STORAGE_KEY));
 
-  return normalizeBaseUrl(queryValue) || injectedValue || storedValue;
+  return normalizeBaseUrl(queryValue) || injectedValue;
 }
 
 function expandExplicitBaseUrl(baseUrl) {
@@ -88,9 +79,8 @@ function getCandidateBaseUrls() {
 
   return uniqueValues([
     ...expandExplicitBaseUrl(configuredBase),
-    ...(currentOrigin ? [`${currentOrigin}/api`, currentOrigin] : []),
+    ...(currentOrigin ? [`${currentOrigin}/api`] : []),
     ...API_CONFIG.backendCandidates,
-    ...API_CONFIG.directCandidates,
   ]).map(normalizeBaseUrl);
 }
 
@@ -99,8 +89,7 @@ function getDirectApiKey() {
   return (
     params.get("apiKey") ||
     params.get("llmApiKey") ||
-    window.__CALL_LLM_CONFIG__?.apiKey ||
-    API_CONFIG.legacyApiKey
+    window.__CALL_LLM_CONFIG__?.apiKey
   );
 }
 

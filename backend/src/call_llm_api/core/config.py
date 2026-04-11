@@ -17,7 +17,7 @@ class Settings(BaseSettings):
   app_name: str = "callLLM API"
   api_prefix: str = "/api"
   frontend_mount_path: str = "/ui"
-  provider_base_url: str = "http://127.0.0.1:8001"
+  provider_base_url: str = "http://127.0.0.1:18001"
   provider_api_key: str = "local-dev-token"
   default_model: str = "qwen3-8b-int4"
   request_timeout_seconds: float = 60.0

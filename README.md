@@ -37,6 +37,15 @@ cp .env.example .env
 uvicorn call_llm_api.main:app --app-dir backend/src --reload
 ```
 
+`.env.example` now assumes the shared remote Qwen model is exposed locally on `127.0.0.1:18001`.
+If you are using the shared `app-b` deployment, start the SSH tunnel before running the backend:
+
+```bash
+ssh -N -L 18001:10.43.230.206:8000 -p 9454 evo@116.37.208.45
+```
+
+If you are using a different local or hosted model server, change `CALL_LLM_PROVIDER_BASE_URL` in `.env`.
+
 Open:
 
 - UI: `http://127.0.0.1:8000/ui/`
@@ -45,11 +54,11 @@ Open:
 ## UI target selection
 
 - The chat UI now prefers the local backend proxy at `http://127.0.0.1:8000/api`.
-- If the backend is not available, it falls back to a direct OpenAI-compatible endpoint such as `http://127.0.0.1:8001`.
+- Direct browser-to-model calls are no longer auto-discovered. Use them only when you explicitly pass a target.
 - For the remote `app-b` Qwen deployment on `116.37.208.45`, expose it locally first with:
 
 ```bash
-ssh -N -L 18001:qwen3-8b-int4.10.31.3.229.nip.io:80 -p 9454 evo@116.37.208.45
+ssh -N -L 18001:10.43.230.206:8000 -p 9454 evo@116.37.208.45
 ```
 
 - Then run the local backend with `CALL_LLM_PROVIDER_BASE_URL=http://127.0.0.1:18001`, or open the static UI with `?apiBase=http://127.0.0.1:18001`.
@@ -64,6 +73,20 @@ http://127.0.0.1:5500/?apiBase=http://127.0.0.1:1234
 ```text
 http://127.0.0.1:5500/?apiBase=http://127.0.0.1:1234&apiKey=YOUR_KEY
 ```
+
+## Tests
+
+Run the focused backend regression tests with:
+
+```bash
+source .venv/bin/activate
+pytest
+```
+
+The current test coverage is intentionally small and protects the last breakage:
+
+- `tool_names=[]` must disable provider tool wiring
+- thread streaming must not attach `tool_choice=auto` when no tools are requested
 
 ## Persistence and queueing
 
