@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+patches:
+  - target:
+      kind: Deployment
+      name: qwen3-8b-int4-vllm
+      namespace: app-b
+    path: deployment.patch.yaml
+  - target:
+      kind: ConfigMap
+      name: qwen3-8b-int4-config
+      namespace: app-b
+    path: configmap.patch.yaml

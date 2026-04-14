@@ -75,6 +75,38 @@ class RunKind(str, Enum):
   THREAD_RUN = "thread_run"
 
 
+class ModelHealthStatus(str, Enum):
+  UNKNOWN = "unknown"
+  HEALTHY = "healthy"
+  UNAVAILABLE = "unavailable"
+
+
+class AgentStrategyKind(str, Enum):
+  DIRECT = "direct"
+  RAG = "rag"
+  TOOL = "tool"
+
+
+class AgentFramework(str, Enum):
+  CUSTOM = "custom"
+  LANGCHAIN = "langchain"
+  LANGGRAPH = "langgraph"
+  LLAMAINDEX = "llamaindex"
+
+
+class BenchmarkSuiteStatus(str, Enum):
+  DRAFT = "draft"
+  ACTIVE = "active"
+  ARCHIVED = "archived"
+
+
+class BenchmarkRunStatus(str, Enum):
+  QUEUED = "queued"
+  RUNNING = "running"
+  COMPLETED = "completed"
+  FAILED = "failed"
+
+
 class ToolDefinition(BaseModel):
   name: str
   description: str
@@ -113,6 +145,113 @@ class RunRecord(BaseModel):
   metadata: dict[str, Any] = Field(default_factory=dict)
   created_at: datetime
   updated_at: datetime
+
+
+class ModelRegistryRecord(BaseModel):
+  id: str
+  name: str
+  provider: str
+  base_url: str
+  served_model_name: str
+  api_type: str = "openai_compatible"
+  api_key: str | None = Field(default=None, exclude=True)
+  enabled: bool = True
+  health_status: ModelHealthStatus = ModelHealthStatus.UNKNOWN
+  capabilities: dict[str, Any] = Field(default_factory=dict)
+  default_params: dict[str, Any] = Field(default_factory=dict)
+  metadata: dict[str, Any] = Field(default_factory=dict)
+  created_at: datetime
+  updated_at: datetime
+
+
+class AgentProfileRecord(BaseModel):
+  id: str
+  name: str
+  description: str | None = None
+  strategy_kind: AgentStrategyKind = AgentStrategyKind.DIRECT
+  framework: AgentFramework = AgentFramework.CUSTOM
+  system_prompt: str | None = None
+  tool_names: list[str] = Field(default_factory=list)
+  retrieval_policy: dict[str, Any] = Field(default_factory=dict)
+  generation_defaults: dict[str, Any] = Field(default_factory=dict)
+  metadata: dict[str, Any] = Field(default_factory=dict)
+  enabled: bool = True
+  created_at: datetime
+  updated_at: datetime
+
+
+class BenchmarkSuiteRecord(BaseModel):
+  id: str
+  name: str
+  version: str = "1"
+  description: str | None = None
+  tags: list[str] = Field(default_factory=list)
+  status: BenchmarkSuiteStatus = BenchmarkSuiteStatus.DRAFT
+  metadata: dict[str, Any] = Field(default_factory=dict)
+  created_at: datetime
+  updated_at: datetime
+
+
+class BenchmarkCaseRecord(BaseModel):
+  id: str
+  suite_id: str
+  name: str
+  slug: str
+  input_messages: list[ChatMessage] = Field(default_factory=list)
+  expected_output: dict[str, Any] = Field(default_factory=dict)
+  rubric: dict[str, Any] = Field(default_factory=dict)
+  metadata: dict[str, Any] = Field(default_factory=dict)
+  enabled: bool = True
+  created_at: datetime
+  updated_at: datetime
+
+
+class BenchmarkRunRecord(BaseModel):
+  id: str
+  suite_id: str
+  model_id: str
+  agent_profile_id: str
+  status: BenchmarkRunStatus = BenchmarkRunStatus.QUEUED
+  runner_version: str = "v1"
+  params: dict[str, Any] = Field(default_factory=dict)
+  summary: dict[str, Any] = Field(default_factory=dict)
+  error: str | None = None
+  created_at: datetime
+  updated_at: datetime
+  started_at: datetime | None = None
+  finished_at: datetime | None = None
+
+
+class BenchmarkCaseResultRecord(BaseModel):
+  id: str
+  benchmark_run_id: str
+  benchmark_case_id: str
+  status: BenchmarkRunStatus = BenchmarkRunStatus.QUEUED
+  latency_ms: int | None = None
+  first_token_ms: int | None = None
+  prompt_tokens: int | None = None
+  completion_tokens: int | None = None
+  score: dict[str, Any] = Field(default_factory=dict)
+  output_text: str | None = None
+  raw_output: dict[str, Any] | None = None
+  trace: list[dict[str, Any]] = Field(default_factory=list)
+  error: str | None = None
+  created_at: datetime
+  updated_at: datetime
+
+
+class BenchmarkRunSnapshotRecord(BaseModel):
+  run: BenchmarkRunRecord
+  model: ModelRegistryRecord
+  profile: AgentProfileRecord
+  results: list[BenchmarkCaseResultRecord] = Field(default_factory=list)
+
+
+class BenchmarkHistoryEntryRecord(BaseModel):
+  suite: BenchmarkSuiteRecord
+  cases: list[BenchmarkCaseRecord] = Field(default_factory=list)
+  runs: list[BenchmarkRunSnapshotRecord] = Field(default_factory=list)
+  latest_updated_at: datetime
 
 
 def tool_result_to_message(result: ToolExecutionResult) -> ChatMessage:

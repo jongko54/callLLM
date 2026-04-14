@@ -1,3 +1,3 @@
-from . import chat, health, models, responses, runs, threads, tools
+from . import benchmarks, chat, health, models, registry, responses, runs, threads, tools
 
-__all__ = ["chat", "health", "models", "responses", "runs", "threads", "tools"]
+__all__ = ["benchmarks", "chat", "health", "models", "registry", "responses", "runs", "threads", "tools"]

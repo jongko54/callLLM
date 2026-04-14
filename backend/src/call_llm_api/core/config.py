@@ -20,6 +20,7 @@ class Settings(BaseSettings):
   provider_base_url: str = "http://127.0.0.1:18001"
   provider_api_key: str = "local-dev-token"
   default_model: str = "qwen3-8b-int4"
+  provider_tool_calling: bool = False
   request_timeout_seconds: float = 60.0
   persistence_backend: str = "sqlalchemy"
   database_url: str = f"sqlite+aiosqlite:///{(PROJECT_ROOT / 'storage' / 'call_llm.db').as_posix()}"

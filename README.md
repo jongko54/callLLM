@@ -37,6 +37,12 @@ cp .env.example .env
 uvicorn call_llm_api.main:app --app-dir backend/src --reload
 ```
 
+To enable the framework benchmark runners for `LangChain`, `LangGraph`, and `LlamaIndex`, install the optional extras:
+
+```bash
+pip install -e ".[dev,frameworks]"
+```
+
 `.env.example` now assumes the shared remote Qwen model is exposed locally on `127.0.0.1:18001`.
 If you are using the shared `app-b` deployment, start the SSH tunnel before running the backend:
 
@@ -45,6 +51,7 @@ ssh -N -L 18001:10.43.230.206:8000 -p 9454 evo@116.37.208.45
 ```
 
 If you are using a different local or hosted model server, change `CALL_LLM_PROVIDER_BASE_URL` in `.env`.
+If your upstream server supports tool calling, set `CALL_LLM_PROVIDER_TOOL_CALLING=true`.
 If `CALL_LLM_DATABASE_URL` is left unset, the backend uses the default local SQLite file under `storage/call_llm.db`.
 
 Open:
@@ -84,6 +91,19 @@ source .venv/bin/activate
 python -m pytest
 ```
 
+Run an ad-hoc benchmark matrix from the terminal with:
+
+```bash
+source .venv/bin/activate
+python scripts/run_benchmark_matrix.py \
+  --model-id default-upstream-model \
+  --profile-id direct-chat \
+  --profile-id langchain-direct \
+  --prompt "Summarize why SSE is useful for streaming LLM responses."
+```
+
+If you want to benchmark tool-using agents against vLLM, the upstream model server must be started with auto tool-calling enabled. The current shared Qwen server returns a 400 error unless `--enable-auto-tool-choice` and `--tool-call-parser` are set on the vLLM side.
+
 The current test coverage is intentionally small and protects the last breakage:
 
 - `tool_names=[]` must disable provider tool wiring
@@ -112,7 +132,7 @@ CALL_LLM_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/call_llm
 1. Add Alembic migrations instead of relying on auto-create schema.
 2. Add auth, rate limits, and tenant-aware model routing.
 3. Persist richer run events and tool traces for replay and auditing.
-4. Add provider-specific adapters for OpenAI, Anthropic, and Gemini.
+4. Add judge-based evaluation and rubric scoring for benchmark outputs.
 5. Replace demo tools with real internal tools and permissioning.
 
 ## Project shape

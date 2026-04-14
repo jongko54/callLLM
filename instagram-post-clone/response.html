@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>callLLM Response</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://api.fontshare.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=excon@300,400,500,600,700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="response">
+    <main class="page-shell">
+      <header class="hub-header brutal-header">
+        <div class="brand-row">
+          <a class="brand-mark" href="./response.html" aria-label="callLLM Response">
+            <span class="brand-badge">cL</span>
+            <span class="brand-copy">
+              <strong>callLLM Response</strong>
+              <span>chat workspace</span>
+            </span>
+          </a>
+
+          <nav class="hub-nav brutal-nav" aria-label="메인 섹션">
+            <a href="./index.html">Browse</a>
+            <a href="./workflow.html">Workflow</a>
+            <a class="is-current" href="./response.html">Response</a>
+            <a href="./results.html">Results</a>
+          </nav>
+        </div>
+
+        <div class="header-controls">
+          <div class="hub-search brutal-search" aria-hidden="true">
+            <span class="search-icon">/</span>
+            <span>Response chat</span>
+          </div>
+          <div class="theme-switcher" aria-label="테마 선택">
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="red">Red</button>
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="blue">Blue</button>
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="yellow">Yellow</button>
+          </div>
+          <button class="ghost-button" id="refresh-button" type="button">Refresh</button>
+          <a class="ghost-button inline-link-button" href="./index.html">Browse</a>
+        </div>
+      </header>
+
+      <section class="response-shell">
+        <aside class="surface-panel brutal-panel response-sidebar">
+          <div class="control-header">
+            <span class="section-kicker">Applied now</span>
+            <button class="ghost-button ghost-button-compact" id="response-clear-button" type="button">New chat</button>
+          </div>
+          <div class="response-summary-grid" id="response-summary-grid"></div>
+
+          <div class="control-header">
+            <span class="section-kicker">Profiles</span>
+          </div>
+          <div class="response-profile-list" id="response-profile-list"></div>
+
+          <div class="control-header">
+            <span class="section-kicker">Models</span>
+            <span class="response-status" id="status-text">ready</span>
+          </div>
+          <div class="response-model-list" id="response-model-list"></div>
+        </aside>
+
+        <section class="response-chat-stage">
+          <section class="surface-panel brutal-panel response-thread-panel">
+            <div class="response-thread-header">
+              <div>
+                <p class="section-kicker">Response</p>
+                <h2>Chat</h2>
+              </div>
+            </div>
+            <div class="response-thread" id="response-thread"></div>
+          </section>
+
+          <section class="surface-panel brutal-panel response-composer-panel">
+            <div class="response-composer-grid">
+              <label class="field">
+                <span>Message</span>
+                <textarea id="response-input" rows="4" placeholder="메시지를 입력하면 일반 LLM 채팅처럼 이어서 대화합니다."></textarea>
+              </label>
+              <button class="primary-button response-send-button" id="response-send-button" type="button">Send</button>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -17,15 +17,21 @@ class OpenAICompatibleClient:
     )
 
   async def list_models(self) -> dict[str, Any]:
-    response = await self._client.get("/v1/models", headers=self._headers())
+    try:
+      response = await self._client.get("/v1/models", headers=self._headers())
+    except httpx.RequestError as exc:
+      raise self._to_provider_request_error(exc, "/v1/models") from exc
     return await self._json_or_raise(response)
 
   async def create_chat_completion(self, payload: dict) -> dict[str, Any]:
-    response = await self._client.post(
-      "/v1/chat/completions",
-      headers=self._headers(),
-      json=payload,
-    )
+    try:
+      response = await self._client.post(
+        "/v1/chat/completions",
+        headers=self._headers(),
+        json=payload,
+      )
+    except httpx.RequestError as exc:
+      raise self._to_provider_request_error(exc, "/v1/chat/completions") from exc
     return await self._json_or_raise(response)
 
   async def close(self) -> None:
@@ -33,38 +39,44 @@ class OpenAICompatibleClient:
 
   async def forward_chat_completion_stream(self, payload: dict) -> AsyncIterator[bytes]:
     stream_payload = {**payload, "stream": True}
-    async with self._client.stream(
-      "POST",
-      "/v1/chat/completions",
-      headers=self._headers(),
-      json=stream_payload,
-    ) as response:
-      await self._raise_for_status(response)
-      async for chunk in response.aiter_bytes():
-        if chunk:
-          yield chunk
+    try:
+      async with self._client.stream(
+        "POST",
+        "/v1/chat/completions",
+        headers=self._headers(),
+        json=stream_payload,
+      ) as response:
+        await self._raise_for_status(response)
+        async for chunk in response.aiter_bytes():
+          if chunk:
+            yield chunk
+    except httpx.RequestError as exc:
+      raise self._to_provider_request_error(exc, "/v1/chat/completions") from exc
 
   async def stream_chat_completion_chunks(self, payload: dict) -> AsyncIterator[dict[str, Any]]:
     stream_payload = {**payload, "stream": True}
-    async with self._client.stream(
-      "POST",
-      "/v1/chat/completions",
-      headers=self._headers(),
-      json=stream_payload,
-    ) as response:
-      await self._raise_for_status(response)
-      async for line in response.aiter_lines():
-        if not line.startswith("data:"):
-          continue
-        data = line.removeprefix("data:").strip()
-        if not data:
-          continue
-        if data == "[DONE]":
-          break
-        try:
-          yield json.loads(data)
-        except json.JSONDecodeError as exc:
-          raise ProviderRequestError(f"Invalid SSE chunk from upstream provider: {exc}") from exc
+    try:
+      async with self._client.stream(
+        "POST",
+        "/v1/chat/completions",
+        headers=self._headers(),
+        json=stream_payload,
+      ) as response:
+        await self._raise_for_status(response)
+        async for line in response.aiter_lines():
+          if not line.startswith("data:"):
+            continue
+          data = line.removeprefix("data:").strip()
+          if not data:
+            continue
+          if data == "[DONE]":
+            break
+          try:
+            yield json.loads(data)
+          except json.JSONDecodeError as exc:
+            raise ProviderRequestError(f"Invalid SSE chunk from upstream provider: {exc}") from exc
+    except httpx.RequestError as exc:
+      raise self._to_provider_request_error(exc, "/v1/chat/completions") from exc
 
   async def _json_or_raise(self, response: httpx.Response) -> dict[str, Any]:
     await self._raise_for_status(response)
@@ -95,3 +107,8 @@ class OpenAICompatibleClient:
     if self._settings.provider_api_key:
       headers["Authorization"] = f"Bearer {self._settings.provider_api_key}"
     return headers
+
+  def _to_provider_request_error(self, exc: httpx.RequestError, path: str) -> ProviderRequestError:
+    base_url = str(self._client.base_url).rstrip("/")
+    detail = f"Upstream LLM server is unreachable at {base_url}{path}: {exc}"
+    return ProviderRequestError(detail, status_code=503)

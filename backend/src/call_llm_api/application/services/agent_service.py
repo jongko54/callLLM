@@ -394,7 +394,7 @@ class AgentService:
     payload = {
       "model": model,
       "messages": messages,
-      "temperature": 0.2,
+      "temperature": 0.7,
     }
     provider_tools = self._tool_registry.as_provider_tools(tool_names)
     if provider_tools:

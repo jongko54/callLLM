@@ -26,6 +26,13 @@ dev = [
 postgres = [
   "asyncpg>=0.30,<1.0",
 ]
+frameworks = [
+  "langchain>=0.3,<1.0",
+  "langchain-openai>=0.3,<1.0",
+  "langgraph>=0.2,<1.0",
+  "llama-index-core>=0.12,<1.0",
+  "llama-index-llms-openai-like>=0.3,<1.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/call_llm_api"]

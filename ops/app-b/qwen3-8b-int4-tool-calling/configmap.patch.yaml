@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qwen3-8b-int4-config
+  namespace: app-b
+data:
+  TOOL_CALL_PARSER: hermes

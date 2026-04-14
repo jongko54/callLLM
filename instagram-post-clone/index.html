@@ -3,53 +3,168 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LLM Chat</title>
+    <title>callLLM Browse</title>
     <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://api.fontshare.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap"
+      href="https://api.fontshare.com/v2/css?f[]=excon@300,400,500,600,700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <main class="app-shell">
-      <header class="app-header">
-        <div class="brand-block">
-          <p class="brand-title">LLM Chat</p>
-          <p class="brand-subtitle" id="status-text">연결 확인 중</p>
-          <p class="brand-subtitle" id="thread-text">스레드 준비 중</p>
+  <body data-page="browse">
+    <main class="page-shell">
+      <header class="hub-header brutal-header">
+        <div class="brand-row">
+          <a class="brand-mark" href="./index.html" aria-label="callLLM Browse">
+            <span class="brand-badge">cL</span>
+            <span class="brand-copy">
+              <strong>callLLM Browse</strong>
+              <span>model hub</span>
+            </span>
+          </a>
+
+          <nav class="hub-nav brutal-nav" aria-label="메인 섹션">
+            <a class="is-current" href="./index.html">Browse</a>
+            <a href="./workflow.html">Workflow</a>
+            <a href="./response.html">Response</a>
+            <a href="./results.html">Results</a>
+          </nav>
         </div>
-        <button class="ghost-button" id="reset-button" type="button">새 대화</button>
+
+        <div class="header-controls">
+          <div class="hub-search brutal-search" aria-hidden="true">
+            <span class="search-icon">/</span>
+            <span>Model hub</span>
+          </div>
+          <div class="theme-switcher" aria-label="테마 선택">
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="red">Red</button>
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="blue">Blue</button>
+            <button class="theme-chip" type="button" data-action="select-theme" data-theme="yellow">Yellow</button>
+          </div>
+          <button class="ghost-button" id="refresh-button" type="button">Refresh</button>
+          <a class="ghost-button inline-link-button" href="./response.html">Response</a>
+          <a class="primary-button inline-link-button" href="./workflow.html">Workflow</a>
+        </div>
       </header>
 
-      <section class="chat-shell">
-        <div class="message-list" id="message-list" aria-live="polite"></div>
+      <section class="signal-strip compact-strip">
+        <article class="signal-card">
+          <span class="signal-label">Connection</span>
+          <strong class="signal-value" id="status-text">연결 확인 중</strong>
+        </article>
+        <article class="signal-card">
+          <span class="signal-label">Workspace</span>
+          <strong class="signal-value" id="workspace-text">browse mode</strong>
+        </article>
+        <article class="signal-card">
+          <span class="signal-label">Selected Models</span>
+          <strong class="signal-value" id="model-count-text">0개</strong>
+        </article>
+        <article class="signal-card">
+          <span class="signal-label">App</span>
+          <strong class="signal-value" id="active-app-title">Benchmark Studio</strong>
+          <p class="signal-copy" id="active-app-description"></p>
+        </article>
+        <article class="signal-card">
+          <span class="signal-label">Strategies</span>
+          <strong class="signal-value" id="active-profile-title">전략 선택 필요</strong>
+          <p class="signal-copy" id="active-profile-description"></p>
+        </article>
+        <article class="signal-card">
+          <span class="signal-label">Catalog Source</span>
+          <strong class="signal-value" id="base-url-text">백엔드 탐색 중</strong>
+        </article>
       </section>
 
-      <form class="composer" id="composer-form">
-        <label class="composer-box" for="composer-input">
-          <textarea
-            id="composer-input"
-            rows="1"
-            placeholder="메시지를 입력하세요"
-            autocomplete="off"
-          ></textarea>
-          <div class="composer-actions">
-            <span class="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span>
-            <button class="send-button" id="send-button" type="submit">전송</button>
+      <section class="top-control-grid">
+        <section class="control-panel brutal-panel control-panel-stack">
+          <div class="control-header">
+            <span class="section-kicker">Stack</span>
           </div>
-        </label>
-      </form>
-    </main>
+          <div class="selected-models inline-tiles" id="selected-models"></div>
+          <div class="selection-meta inline-stats" id="selection-meta"></div>
+        </section>
 
-    <template id="message-template">
-      <article class="message">
-        <div class="message-meta"></div>
-        <div class="message-bubble"></div>
-      </article>
-    </template>
+        <section class="control-panel brutal-panel control-panel-wide">
+          <div class="control-header">
+            <span class="section-kicker">Profiles</span>
+          </div>
+          <div class="profile-list profile-list-inline" id="profile-list"></div>
+        </section>
+
+        <section class="control-panel brutal-panel control-panel-case">
+          <div class="control-header">
+            <span class="section-kicker">Case</span>
+            <div class="header-actions-inline">
+              <button class="ghost-button ghost-button-compact" id="case-mode-button" type="button">Advanced</button>
+              <button class="primary-button primary-button-compact" id="open-response-button" type="button">Send to Response</button>
+            </div>
+          </div>
+          <div class="case-form-grid">
+            <label class="field">
+              <span>Prompt</span>
+              <textarea id="prompt-input" rows="3" placeholder="비교할 프롬프트"></textarea>
+            </label>
+            <label class="field field-advanced">
+              <span>Context (optional)</span>
+              <textarea id="context-input" rows="3" placeholder="RAG 문맥 또는 참고 메모"></textarea>
+            </label>
+            <label class="field field-advanced">
+              <span>Expected check</span>
+              <input id="expected-input" type="text" placeholder="통과 여부를 볼 키워드" />
+            </label>
+            <label class="field field-compact field-advanced">
+              <span>Temp</span>
+              <input id="temperature-input" type="number" min="0" max="2" step="0.1" value="0.7" />
+            </label>
+          </div>
+        </section>
+      </section>
+
+      <section class="surface-panel brutal-panel hub-panel hub-panel-full">
+        <div class="hub-grid hub-grid-hero">
+          <section class="catalog-section" id="models">
+            <div class="catalog-header">
+              <div>
+                <p class="catalog-kicker">LLMs</p>
+                <h3>Models</h3>
+              </div>
+              <span class="catalog-note">multi-select</span>
+            </div>
+            <div class="catalog-grid models-grid compact-grid" id="models-grid"></div>
+          </section>
+
+          <section class="catalog-section" id="libraries">
+            <div class="catalog-header">
+              <div>
+                <p class="catalog-kicker">Libraries</p>
+                <h3>Libraries</h3>
+              </div>
+              <span class="catalog-note">single select</span>
+            </div>
+            <div class="catalog-grid libraries-grid compact-grid" id="libraries-grid"></div>
+          </section>
+
+          <section class="catalog-section" id="apps">
+            <div class="catalog-header">
+              <div>
+                <p class="catalog-kicker">Apps</p>
+                <h3>Apps</h3>
+              </div>
+              <span class="catalog-note">starter</span>
+            </div>
+            <div class="catalog-grid apps-grid compact-grid" id="apps-grid"></div>
+          </section>
+        </div>
+      </section>
+    </main>
 
     <script src="./app.js"></script>
   </body>
