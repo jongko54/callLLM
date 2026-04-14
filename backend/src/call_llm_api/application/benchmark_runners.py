@@ -605,7 +605,7 @@ def build_provider_payload(
   if params.get("max_tokens") is not None:
     payload["max_tokens"] = params["max_tokens"]
   if isinstance(params.get("extra_body"), dict):
-    payload["extra_body"] = params["extra_body"]
+    payload.update(params["extra_body"])
   if tool_names:
     payload["tools"] = context.tool_registry.as_provider_tools(tool_names)
     payload["tool_choice"] = "auto"
@@ -627,7 +627,9 @@ def build_request_preview(payload: dict[str, Any]) -> dict[str, Any]:
     "model": payload.get("model"),
     "temperature": payload.get("temperature"),
     "max_tokens": payload.get("max_tokens"),
-    "extra_body": payload.get("extra_body") if isinstance(payload.get("extra_body"), dict) else None,
+    "chat_template_kwargs": (
+      payload.get("chat_template_kwargs") if isinstance(payload.get("chat_template_kwargs"), dict) else None
+    ),
     "tool_choice": payload.get("tool_choice"),
     "tool_names": [
       tool.get("function", {}).get("name")
@@ -657,7 +659,7 @@ def build_prompt_request_preview(
     "model": model,
     "temperature": temperature,
     "max_tokens": max_tokens,
-    "extra_body": None,
+    "chat_template_kwargs": None,
     "tool_names": tool_names or [],
     "prompt_preview": prompt[:500],
   }

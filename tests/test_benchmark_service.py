@@ -322,7 +322,7 @@ def test_execute_profile_response_includes_rag_context_and_temperature() -> None
     assert resolved_profile.id == profile.id
     assert result["output_text"] == "Expected benchmark answer"
     assert stub_client.payloads[-1]["temperature"] == 0.4
-    assert stub_client.payloads[-1]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert stub_client.payloads[-1]["chat_template_kwargs"]["enable_thinking"] is False
     assert "Retrieved context" in stub_client.payloads[-1]["messages"][0]["content"]
     assert "Alpha document" in stub_client.payloads[-1]["messages"][0]["content"]
 
@@ -372,7 +372,7 @@ def test_stream_profile_response_yields_deltas_for_custom_direct_profile() -> No
 
     assert [event["event"] for event in events] == ["run.started", "message.delta", "message.delta", "run.completed"]
     assert events[-1]["data"]["output_text"] == "안녕하세요."
-    assert stub_client.payloads[-1]["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+    assert stub_client.payloads[-1]["chat_template_kwargs"]["enable_thinking"] is False
 
   asyncio.run(run_test())
 
