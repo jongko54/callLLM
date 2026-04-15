@@ -41,6 +41,7 @@ from call_llm_api.infrastructure.persistence.base import (
 from call_llm_api.infrastructure.tools.registry import ToolRegistry
 
 IDENTITY_QUERY_PATTERN = re.compile(r"(너는\s*누구|누구야|정체가\s*뭐|뭐하는\s*애|what are you|who are you)", re.IGNORECASE)
+RESPONSE_GROUNDING_MODES = {"raw", "auto", "grounded"}
 
 
 class BenchmarkService:
@@ -217,13 +218,14 @@ class BenchmarkService:
       raise BadRequestError(f"Agent profile '{profile.name}' is disabled.")
     self._ensure_model_supports_profile(model, profile)
 
-    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata)
+    grounding_mode = self._resolve_response_grounding_mode(metadata)
+    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata, grounding_mode)
     if grounded_response is not None:
       grounded_response.setdefault("raw_output", {"grounded": True})
       grounded_response.setdefault("usage", {})
       return model, profile, grounded_response
 
-    merged_context_documents = await self._merge_response_context_documents(messages, context_documents)
+    merged_context_documents = await self._merge_response_context_documents(messages, context_documents, grounding_mode)
     case, run = self._build_response_case_and_run(
       model=model,
       profile=profile,
@@ -296,7 +298,8 @@ class BenchmarkService:
         f"Streaming is not yet available for tool profiles. '{profile.name}' requires multi-step tool execution."
       )
 
-    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata)
+    grounding_mode = self._resolve_response_grounding_mode(metadata)
+    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata, grounding_mode)
     if grounded_response is not None:
       yield {
         "event": "run.started",
@@ -319,7 +322,7 @@ class BenchmarkService:
       }
       return
 
-    merged_context_documents = await self._merge_response_context_documents(messages, context_documents)
+    merged_context_documents = await self._merge_response_context_documents(messages, context_documents, grounding_mode)
     case, run = self._build_response_case_and_run(
       model=model,
       profile=profile,
@@ -856,8 +859,11 @@ class BenchmarkService:
     self,
     messages: Sequence[ChatMessage],
     context_documents: list[str] | None,
+    grounding_mode: str,
   ) -> list[str]:
     explicit_context = [item for item in (context_documents or []) if isinstance(item, str) and item.strip()]
+    if grounding_mode == "raw":
+      return explicit_context
     try:
       grounded_context = await self._location_grounder.build_context_documents(messages)
     except Exception:
@@ -877,9 +883,10 @@ class BenchmarkService:
     profile: AgentProfileRecord,
     messages: Sequence[ChatMessage],
     metadata: dict | None,
+    grounding_mode: str,
   ) -> dict | None:
     source = str((metadata or {}).get("source") or "")
-    if source != "response-page" or profile.strategy_kind != AgentStrategyKind.DIRECT:
+    if source != "response-page" or profile.strategy_kind != AgentStrategyKind.DIRECT or grounding_mode == "raw":
       return None
     identity_response = self._maybe_build_identity_response(messages)
     if identity_response is not None:
@@ -888,6 +895,11 @@ class BenchmarkService:
       return await self._location_grounder.maybe_build_grounded_response(messages)
     except Exception:
       return None
+
+  @staticmethod
+  def _resolve_response_grounding_mode(metadata: dict | None) -> str:
+    mode = str((metadata or {}).get("grounding_mode") or "auto").strip().lower()
+    return mode if mode in RESPONSE_GROUNDING_MODES else "auto"
 
   @staticmethod
   def _chunk_text(text: str, size: int = 24) -> list[str]:

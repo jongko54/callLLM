@@ -608,6 +608,7 @@ body[data-page="response"] .page-shell {
 
 .response-profile-list,
 .response-model-list,
+.response-mode-list,
 .response-conversation-list {
   display: grid;
   gap: 6px;

@@ -35,11 +35,17 @@ const STORAGE_KEYS = {
   responseCurrentSession: "callllm:response-current-session:v1",
   responseModel: "callllm:response-model:v1",
   responseProfile: "callllm:response-profile:v1",
+  responseGroundingMode: "callllm:response-grounding-mode:v1",
   responseSeed: "callllm:response-seed:v1",
   theme: "callllm:theme:v1",
 };
 
 const THEMES = ["red", "blue", "yellow"];
+const RESPONSE_GROUNDING_MODES = [
+  { id: "raw", name: "Raw" },
+  { id: "auto", name: "Auto" },
+  { id: "grounded", name: "Grounded" },
+];
 
 function normalizeTheme(value) {
   if (value === "dark") {
@@ -217,6 +223,7 @@ const elements = {
   responseProfileList: document.querySelector("#response-profile-list"),
   responseModelList: document.querySelector("#response-model-list"),
   responseConversationList: document.querySelector("#response-conversation-list"),
+  responseModeList: document.querySelector("#response-mode-list"),
   responseSummaryGrid: document.querySelector("#response-summary-grid"),
   responseThread: document.querySelector("#response-thread"),
   responseInput: document.querySelector("#response-input"),
@@ -260,6 +267,7 @@ const state = {
   responseMessages: [],
   selectedResponseModelId: localStorage.getItem(STORAGE_KEYS.responseModel) || "",
   selectedResponseProfileId: localStorage.getItem(STORAGE_KEYS.responseProfile) || "",
+  responseGroundingMode: normalizeResponseGroundingMode(localStorage.getItem(STORAGE_KEYS.responseGroundingMode) || ""),
   activeResponse: false,
   theme: normalizeTheme(localStorage.getItem(STORAGE_KEYS.theme)),
 };
@@ -289,6 +297,10 @@ function normalizeStoredResponseMessage(item) {
   };
 }
 
+function normalizeResponseGroundingMode(value) {
+  return RESPONSE_GROUNDING_MODES.some((mode) => mode.id === value) ? value : "auto";
+}
+
 function normalizeStoredResponseSession(item) {
   if (!item || typeof item.id !== "string") {
     return null;
@@ -303,6 +315,7 @@ function normalizeStoredResponseSession(item) {
     updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
     modelId: String(item.modelId || ""),
     profileId: String(item.profileId || ""),
+    groundingMode: normalizeResponseGroundingMode(item.groundingMode || ""),
     messages,
   };
 }
@@ -330,6 +343,7 @@ function readStoredResponseSessions() {
       updatedAt: legacyMessages[legacyMessages.length - 1]?.createdAt || new Date().toISOString(),
       modelId: localStorage.getItem(STORAGE_KEYS.responseModel) || "",
       profileId: localStorage.getItem(STORAGE_KEYS.responseProfile) || "",
+      groundingMode: normalizeResponseGroundingMode(localStorage.getItem(STORAGE_KEYS.responseGroundingMode) || ""),
       messages: legacyMessages,
     },
   ];
@@ -911,6 +925,8 @@ function applyResponseSessionById(sessionId) {
   if (session?.profileId) {
     state.selectedResponseProfileId = session.profileId;
   }
+  state.responseGroundingMode = normalizeResponseGroundingMode(session?.groundingMode || state.responseGroundingMode);
+  persistResponseGroundingMode();
   persistCurrentResponseSession();
 }
 
@@ -946,6 +962,7 @@ function saveCurrentResponseSession({ modelId = "", profileId = "" } = {}) {
     updatedAt: now,
     modelId: modelId || state.selectedResponseModelId || getCurrentResponseSession()?.modelId || "",
     profileId: profileId || state.selectedResponseProfileId || getCurrentResponseSession()?.profileId || "",
+    groundingMode: state.responseGroundingMode,
     messages: state.responseMessages.map((message) => ({ ...message })),
   };
   const existingIndex = state.responseSessions.findIndex((session) => session.id === sessionPayload.id);
@@ -1009,6 +1026,10 @@ function persistResponseModel() {
 
 function persistResponseProfile() {
   localStorage.setItem(STORAGE_KEYS.responseProfile, state.selectedResponseProfileId);
+}
+
+function persistResponseGroundingMode() {
+  localStorage.setItem(STORAGE_KEYS.responseGroundingMode, state.responseGroundingMode);
 }
 
 function persistTheme() {
@@ -1355,6 +1376,25 @@ function renderResponseProfilePicker() {
   }).join("");
 }
 
+function renderResponseModePicker() {
+  if (!elements.responseModeList) {
+    return;
+  }
+  elements.responseModeList.innerHTML = RESPONSE_GROUNDING_MODES.map((mode) => {
+    const isSelected = state.responseGroundingMode === mode.id;
+    return `
+      <button
+        class="profile-card ${isSelected ? "is-selected" : ""}"
+        type="button"
+        data-action="select-response-mode"
+        data-response-mode="${mode.id}"
+      >
+        <strong>${escapeHtml(mode.name)}</strong>
+      </button>
+    `;
+  }).join("");
+}
+
 function renderResponseSummary() {
   if (!elements.responseSummaryGrid) {
     return;
@@ -1382,6 +1422,11 @@ function renderResponseSummary() {
     {
       label: "Temp",
       value: String(getCaseDraft().temperature || API_CONFIG.defaultTemperature),
+      tone: "applied",
+    },
+    {
+      label: "Mode",
+      value: RESPONSE_GROUNDING_MODES.find((mode) => mode.id === state.responseGroundingMode)?.name || "Auto",
       tone: "applied",
     },
     {
@@ -1925,6 +1970,7 @@ function renderAll() {
   renderSelectedStack();
   renderWorkflowCaseBrief();
   renderProfiles();
+  renderResponseModePicker();
   renderResponseProfilePicker();
   renderResponseModelPicker();
   renderResponseSummary();
@@ -2149,6 +2195,7 @@ function openResponseWithPrompt() {
       temperature: caseDraft.temperature,
       modelId: selectedModel?.id || "",
       profileId: selectedProfile?.id || "",
+      groundingMode: state.responseGroundingMode,
       libraryId: selectedLibrary?.id || "",
       appId: selectedApp?.id || "",
       resetChat: true,
@@ -2167,6 +2214,13 @@ function selectResponseModel(modelId) {
 function selectResponseProfile(profileId) {
   state.selectedResponseProfileId = profileId;
   persistResponseProfile();
+  renderAll();
+}
+
+function selectResponseGroundingMode(modeId) {
+  state.responseGroundingMode = normalizeResponseGroundingMode(modeId);
+  persistResponseGroundingMode();
+  saveCurrentResponseSession();
   renderAll();
 }
 
@@ -2201,6 +2255,7 @@ function buildResponsePayload(activeModel, activeProfile) {
     temperature: Number(getCaseDraft().temperature || API_CONFIG.defaultTemperature),
     metadata: {
       source: "response-page",
+      grounding_mode: state.responseGroundingMode,
       selected_model_id: activeModel.id,
       selected_profile_id: activeProfile.id,
     },
@@ -2448,6 +2503,10 @@ function maybeAutostartResponseFromSeed() {
     if (seed.profileId) {
       state.selectedResponseProfileId = seed.profileId;
       persistResponseProfile();
+    }
+    if (seed.groundingMode) {
+      state.responseGroundingMode = normalizeResponseGroundingMode(seed.groundingMode);
+      persistResponseGroundingMode();
     }
     syncSelections();
     renderAll();
@@ -3205,6 +3264,13 @@ function attachEventListeners() {
     }
     selectResponseProfile(target.dataset.profileId);
   });
+  elements.responseModeList?.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-action='select-response-mode']");
+    if (!target) {
+      return;
+    }
+    selectResponseGroundingMode(target.dataset.responseMode);
+  });
   elements.responseConversationList?.addEventListener("click", (event) => {
     const target = event.target.closest("[data-action='select-response-session']");
     if (!target) {
@@ -3313,6 +3379,8 @@ async function initializeApp() {
   if (elements.responseInput) {
     elements.responseInput.value = state.responseDraft;
   }
+  state.responseGroundingMode = normalizeResponseGroundingMode(state.responseGroundingMode);
+  persistResponseGroundingMode();
   syncResponseSessions();
   attachEventListeners();
   renderAll();

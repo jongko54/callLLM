@@ -506,6 +506,56 @@ def test_execute_profile_response_uses_identity_override_for_response_page() -> 
   asyncio.run(run_test())
 
 
+def test_execute_profile_response_raw_mode_skips_grounding_override() -> None:
+  async def run_test() -> None:
+    stub_client = StubBenchmarkLLMClient()
+    stub_grounder = StubLocationGrounder([])
+    stub_grounder.grounded_response = {
+      "output_text": "This should not be used",
+      "trace": [{"event": "grounded.location_response"}],
+    }
+    service = BenchmarkServiceHarness(stub_client, location_grounder=stub_grounder)
+
+    model = await service.register_model(
+      name="Stub Model",
+      provider="vllm",
+      base_url="http://127.0.0.1:18001",
+      served_model_name="stub-model",
+      api_type="openai_compatible",
+      api_key="test-token",
+      enabled=True,
+      capabilities={"chat_completions": True},
+      default_params={},
+      metadata={},
+    )
+    profile = await service.create_agent_profile(
+      name="Direct",
+      description="baseline",
+      strategy_kind="direct",
+      framework="custom",
+      system_prompt=None,
+      tool_names=[],
+      retrieval_policy={},
+      generation_defaults={},
+      metadata={},
+      enabled=True,
+    )
+
+    _, _, result = await service.execute_profile_response(
+      model_id=model.id,
+      profile_id=profile.id,
+      messages=[ChatMessage(role="user", content="서울특별시 종로구 홍파동 주변역이 뭐야?")],
+      context_documents=[],
+      temperature=0.7,
+      metadata={"source": "response-page", "grounding_mode": "raw"},
+    )
+
+    assert result["output_text"] == "Expected benchmark answer"
+    assert stub_client.payloads != []
+
+  asyncio.run(run_test())
+
+
 def test_stream_profile_response_yields_deltas_for_custom_direct_profile() -> None:
   async def run_test() -> None:
     stub_client = StubBenchmarkLLMClient()
