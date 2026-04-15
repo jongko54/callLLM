@@ -27,6 +27,15 @@ from call_llm_api.infrastructure.tools.registry import ToolRegistry
 
 FRAMEWORK_INSTALL_HINT = 'pip install -e ".[frameworks]"'
 DEFAULT_GENERATION_TEMPERATURE = 0.7
+RESPONSE_STYLE_PROMPT = (
+  "Response mode instructions:\n"
+  "- You are the callLLM assistant, not the underlying model.\n"
+  "- Do not introduce yourself as Qwen, GPT, or any other model name unless the user explicitly asks which model is running.\n"
+  "- Prefer short paragraphs or flat bullets.\n"
+  "- Avoid markdown tables unless the user explicitly asks for a table.\n"
+  "- If factual certainty is low, say that clearly instead of inventing details.\n"
+  "- When grounded context is provided, prioritize it over guesses."
+)
 FRAMEWORK_PACKAGE_REQUIREMENTS: dict[AgentFramework, tuple[str, ...]] = {
   AgentFramework.CUSTOM: (),
   AgentFramework.LANGCHAIN: ("langchain_openai",),
@@ -574,14 +583,18 @@ def build_system_prompt(profile: AgentProfileRecord, case: BenchmarkCaseRecord) 
   if profile.system_prompt:
     sections.append(profile.system_prompt)
 
-  if profile.strategy_kind == AgentStrategyKind.RAG:
-    context_documents = case.metadata.get("context_documents") or []
-    if isinstance(context_documents, str):
-      context_documents = [context_documents]
-    if context_documents:
-      context_block = "\n".join(f"- {document}" for document in context_documents if isinstance(document, str))
-      if context_block:
-        sections.append(f"Retrieved context:\n{context_block}")
+  if case.metadata.get("response_mode"):
+    sections.append(RESPONSE_STYLE_PROMPT)
+
+  context_documents = case.metadata.get("context_documents") or []
+  if isinstance(context_documents, str):
+    context_documents = [context_documents]
+  if context_documents and (
+    profile.strategy_kind == AgentStrategyKind.RAG or case.metadata.get("response_mode")
+  ):
+    context_block = "\n".join(f"- {document}" for document in context_documents if isinstance(document, str))
+    if context_block:
+      sections.append(f"Grounded context:\n{context_block}")
 
   return "\n\n".join(section for section in sections if section).strip() or None
 

@@ -31,6 +31,8 @@ const STORAGE_KEYS = {
   caseMode: "callllm:case-mode:v1",
   responseDraft: "callllm:response-draft:v1",
   responseMessages: "callllm:response-messages:v1",
+  responseSessions: "callllm:response-sessions:v1",
+  responseCurrentSession: "callllm:response-current-session:v1",
   responseModel: "callllm:response-model:v1",
   responseProfile: "callllm:response-profile:v1",
   responseSeed: "callllm:response-seed:v1",
@@ -214,6 +216,7 @@ const elements = {
   resultsFeed: document.querySelector("#results-feed"),
   responseProfileList: document.querySelector("#response-profile-list"),
   responseModelList: document.querySelector("#response-model-list"),
+  responseConversationList: document.querySelector("#response-conversation-list"),
   responseSummaryGrid: document.querySelector("#response-summary-grid"),
   responseThread: document.querySelector("#response-thread"),
   responseInput: document.querySelector("#response-input"),
@@ -252,16 +255,9 @@ const state = {
   caseMode: localStorage.getItem(STORAGE_KEYS.caseMode) === "advanced" ? "advanced" : "basic",
   historySelectionNotice: "",
   responseDraft: localStorage.getItem(STORAGE_KEYS.responseDraft) || "",
-  responseMessages: readStoredArray(STORAGE_KEYS.responseMessages)
-    .filter((item) => item && typeof item.role === "string")
-    .map((item) => ({
-      role: item.role,
-      content: String(item.content || ""),
-      createdAt: item.createdAt || new Date().toISOString(),
-      state: item.state || "done",
-      modelName: item.modelName || "",
-      profileName: item.profileName || "",
-    })),
+  responseSessions: readStoredResponseSessions(),
+  currentResponseSessionId: localStorage.getItem(STORAGE_KEYS.responseCurrentSession) || "",
+  responseMessages: [],
   selectedResponseModelId: localStorage.getItem(STORAGE_KEYS.responseModel) || "",
   selectedResponseProfileId: localStorage.getItem(STORAGE_KEYS.responseProfile) || "",
   activeResponse: false,
@@ -277,6 +273,66 @@ function readStoredArray(key) {
   } catch {
     return [];
   }
+}
+
+function normalizeStoredResponseMessage(item) {
+  if (!item || typeof item.role !== "string") {
+    return null;
+  }
+  return {
+    role: item.role,
+    content: String(item.content || ""),
+    createdAt: item.createdAt || new Date().toISOString(),
+    state: item.state || "done",
+    modelName: item.modelName || "",
+    profileName: item.profileName || "",
+  };
+}
+
+function normalizeStoredResponseSession(item) {
+  if (!item || typeof item.id !== "string") {
+    return null;
+  }
+  const messages = Array.isArray(item.messages)
+    ? item.messages.map(normalizeStoredResponseMessage).filter(Boolean)
+    : [];
+  return {
+    id: item.id,
+    title: String(item.title || "New chat"),
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    modelId: String(item.modelId || ""),
+    profileId: String(item.profileId || ""),
+    messages,
+  };
+}
+
+function readStoredResponseSessions() {
+  const storedSessions = readStoredArray(STORAGE_KEYS.responseSessions)
+    .map(normalizeStoredResponseSession)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  if (storedSessions.length > 0) {
+    return storedSessions;
+  }
+
+  const legacyMessages = readStoredArray(STORAGE_KEYS.responseMessages)
+    .map(normalizeStoredResponseMessage)
+    .filter(Boolean);
+  if (legacyMessages.length === 0) {
+    return [];
+  }
+  return [
+    {
+      id: `chat-${Date.now()}`,
+      title: buildResponseSessionTitle(legacyMessages),
+      createdAt: legacyMessages[0]?.createdAt || new Date().toISOString(),
+      updatedAt: legacyMessages[legacyMessages.length - 1]?.createdAt || new Date().toISOString(),
+      modelId: localStorage.getItem(STORAGE_KEYS.responseModel) || "",
+      profileId: localStorage.getItem(STORAGE_KEYS.responseProfile) || "",
+      messages: legacyMessages,
+    },
+  ];
 }
 
 function uniqueValues(values) {
@@ -775,7 +831,7 @@ function getAvailableApps() {
 
 function getCaseDraft() {
   return {
-    prompt: elements.promptInput?.value ?? localStorage.getItem(STORAGE_KEYS.promptDraft) ?? API_CONFIG.defaultPrompt,
+    prompt: elements.promptInput?.value ?? "",
     context: elements.contextInput?.value ?? localStorage.getItem(STORAGE_KEYS.contextDraft) ?? "",
     expected: elements.expectedInput?.value ?? localStorage.getItem(STORAGE_KEYS.expectedDraft) ?? API_CONFIG.defaultExpected,
     temperature: elements.temperatureInput?.value ?? localStorage.getItem(STORAGE_KEYS.temperatureDraft) ?? String(API_CONFIG.defaultTemperature),
@@ -819,6 +875,90 @@ function getActiveResponseProfile() {
   return profiles.find((profile) => profile.id === state.selectedResponseProfileId) || profiles[0] || null;
 }
 
+function getCurrentResponseSession() {
+  return state.responseSessions.find((session) => session.id === state.currentResponseSessionId) || null;
+}
+
+function buildResponseSessionTitle(messages) {
+  const firstUserMessage = (messages || []).find((message) => message.role === "user" && String(message.content || "").trim());
+  if (!firstUserMessage) {
+    return "New chat";
+  }
+  return shortenText(firstUserMessage.content, 36);
+}
+
+function persistResponseSessions() {
+  localStorage.setItem(STORAGE_KEYS.responseSessions, JSON.stringify(state.responseSessions));
+}
+
+function persistCurrentResponseSession() {
+  localStorage.setItem(STORAGE_KEYS.responseCurrentSession, state.currentResponseSessionId || "");
+}
+
+function applyResponseSessionById(sessionId) {
+  const session = state.responseSessions.find((item) => item.id === sessionId) || null;
+  state.currentResponseSessionId = session?.id || "";
+  state.responseMessages = session
+    ? session.messages.map((message) => ({ ...message }))
+    : [];
+  state.responseDraft = "";
+  if (elements.responseInput) {
+    elements.responseInput.value = "";
+  }
+  if (session?.modelId) {
+    state.selectedResponseModelId = session.modelId;
+  }
+  if (session?.profileId) {
+    state.selectedResponseProfileId = session.profileId;
+  }
+  persistCurrentResponseSession();
+}
+
+function syncResponseSessions() {
+  state.responseSessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  if (state.responseSessions.length === 0) {
+    state.currentResponseSessionId = "";
+    state.responseMessages = [];
+    persistResponseSessions();
+    persistCurrentResponseSession();
+    return;
+  }
+  if (!state.currentResponseSessionId || !getCurrentResponseSession()) {
+    applyResponseSessionById(state.responseSessions[0].id);
+  } else {
+    persistCurrentResponseSession();
+  }
+  persistResponseSessions();
+}
+
+function saveCurrentResponseSession({ modelId = "", profileId = "" } = {}) {
+  if (state.responseMessages.length === 0) {
+    persistResponseSessions();
+    persistCurrentResponseSession();
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const sessionPayload = {
+    id: state.currentResponseSessionId || `chat-${Date.now()}`,
+    title: buildResponseSessionTitle(state.responseMessages),
+    createdAt: getCurrentResponseSession()?.createdAt || now,
+    updatedAt: now,
+    modelId: modelId || state.selectedResponseModelId || getCurrentResponseSession()?.modelId || "",
+    profileId: profileId || state.selectedResponseProfileId || getCurrentResponseSession()?.profileId || "",
+    messages: state.responseMessages.map((message) => ({ ...message })),
+  };
+  const existingIndex = state.responseSessions.findIndex((session) => session.id === sessionPayload.id);
+  if (existingIndex === -1) {
+    state.responseSessions.unshift(sessionPayload);
+  } else {
+    state.responseSessions.splice(existingIndex, 1, sessionPayload);
+  }
+  state.currentResponseSessionId = sessionPayload.id;
+  syncResponseSessions();
+  return sessionPayload;
+}
+
 function getProfileRuntimeNote(profile) {
   const runtimeStatus = profile.metadata?.runtime_status;
   if (!runtimeStatus || runtimeStatus.available !== false) {
@@ -838,9 +978,7 @@ function persistSelections() {
 }
 
 function persistCaseDraft() {
-  if (elements.promptInput) {
-    localStorage.setItem(STORAGE_KEYS.promptDraft, elements.promptInput.value);
-  }
+  localStorage.removeItem(STORAGE_KEYS.promptDraft);
   if (elements.contextInput) {
     localStorage.setItem(STORAGE_KEYS.contextDraft, elements.contextInput.value);
   }
@@ -862,6 +1000,7 @@ function persistResponseDraft() {
 
 function persistResponseMessages() {
   localStorage.setItem(STORAGE_KEYS.responseMessages, JSON.stringify(state.responseMessages));
+  saveCurrentResponseSession();
 }
 
 function persistResponseModel() {
@@ -1269,6 +1408,35 @@ function renderResponseSummary() {
           <span>${escapeHtml(item.label)}</span>
           <strong>${escapeHtml(item.value)}</strong>
         </article>
+      `;
+    })
+    .join("");
+}
+
+function renderResponseConversationList() {
+  if (!elements.responseConversationList) {
+    return;
+  }
+  if (state.responseSessions.length === 0) {
+    elements.responseConversationList.innerHTML = '<div class="empty-state">아직 저장된 대화가 없습니다.</div>';
+    return;
+  }
+
+  elements.responseConversationList.innerHTML = state.responseSessions
+    .map((session) => {
+      const isSelected = session.id === state.currentResponseSessionId;
+      const timestamp = new Date(session.updatedAt);
+      const updatedLabel = Number.isNaN(timestamp.getTime()) ? session.updatedAt : timestamp.toLocaleString("ko-KR");
+      return `
+        <button
+          class="response-session-item ${isSelected ? "is-selected" : ""}"
+          type="button"
+          data-action="select-response-session"
+          data-session-id="${session.id}"
+        >
+          <strong>${escapeHtml(session.title)}</strong>
+          <span>${escapeHtml(updatedLabel)}</span>
+        </button>
       `;
     })
     .join("");
@@ -1760,6 +1928,7 @@ function renderAll() {
   renderResponseProfilePicker();
   renderResponseModelPicker();
   renderResponseSummary();
+  renderResponseConversationList();
   renderResponseThread();
   renderCanvas();
   renderRunSummary();
@@ -1964,7 +2133,6 @@ function openResponseWithPrompt() {
   const selectedApp = getSelectedApp();
   const caseDraft = getCaseDraft();
   const prompt = caseDraft.prompt.trim();
-  localStorage.setItem(STORAGE_KEYS.promptDraft, caseDraft.prompt || "");
   if (selectedModel?.id) {
     localStorage.setItem(STORAGE_KEYS.responseModel, selectedModel.id);
   }
@@ -2003,13 +2171,15 @@ function selectResponseProfile(profileId) {
 }
 
 function clearResponseChat() {
+  saveCurrentResponseSession();
+  state.currentResponseSessionId = "";
   state.responseMessages = [];
   state.responseDraft = "";
   if (elements.responseInput) {
     elements.responseInput.value = "";
   }
   persistResponseDraft();
-  persistResponseMessages();
+  persistCurrentResponseSession();
   renderAll();
 }
 
@@ -2209,7 +2379,7 @@ async function sendResponseMessage(seedPrompt = "") {
     elements.responseInput.value = "";
   }
   persistResponseDraft();
-  persistResponseMessages();
+  saveCurrentResponseSession({ modelId: activeModel.id, profileId: activeProfile.id });
   updateActionButtons();
   renderResponseThread();
   setStatus(`${activeModel.name} · ${activeProfile.name} 응답 생성 중...`);
@@ -2230,7 +2400,7 @@ async function sendResponseMessage(seedPrompt = "") {
       lastMessage.state = "error";
       lastMessage.content = lastMessage.content || `실행 실패: ${error.message}`;
     }
-    persistResponseMessages();
+    saveCurrentResponseSession({ modelId: activeModel.id, profileId: activeProfile.id });
     setStatus(`실행 실패: ${error.message}`);
   } finally {
     state.activeResponse = false;
@@ -2282,14 +2452,15 @@ function maybeAutostartResponseFromSeed() {
     syncSelections();
     renderAll();
     if (seed.resetChat) {
+      state.currentResponseSessionId = "";
       state.responseMessages = [];
       state.responseDraft = "";
       if (elements.responseInput) {
         elements.responseInput.value = "";
       }
-      persistResponseMessages();
+      persistCurrentResponseSession();
       persistResponseDraft();
-      renderResponseThread();
+      renderAll();
     }
     if (shouldAutostart && seed.prompt) {
       void sendResponseMessage(seed.prompt);
@@ -3034,6 +3205,14 @@ function attachEventListeners() {
     }
     selectResponseProfile(target.dataset.profileId);
   });
+  elements.responseConversationList?.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-action='select-response-session']");
+    if (!target) {
+      return;
+    }
+    applyResponseSessionById(target.dataset.sessionId);
+    renderAll();
+  });
 
   elements.responseSendButton?.addEventListener("click", () => {
     void sendResponseMessage();
@@ -3119,7 +3298,8 @@ function attachEventListeners() {
 
 async function initializeApp() {
   if (elements.promptInput) {
-    elements.promptInput.value = localStorage.getItem(STORAGE_KEYS.promptDraft) || API_CONFIG.defaultPrompt;
+    localStorage.removeItem(STORAGE_KEYS.promptDraft);
+    elements.promptInput.value = "";
   }
   if (elements.contextInput) {
     elements.contextInput.value = localStorage.getItem(STORAGE_KEYS.contextDraft) || "";
@@ -3133,6 +3313,7 @@ async function initializeApp() {
   if (elements.responseInput) {
     elements.responseInput.value = state.responseDraft;
   }
+  syncResponseSessions();
   attachEventListeners();
   renderAll();
 

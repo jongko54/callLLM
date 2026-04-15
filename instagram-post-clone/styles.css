@@ -607,7 +607,8 @@ body[data-page="response"] .page-shell {
 }
 
 .response-profile-list,
-.response-model-list {
+.response-model-list,
+.response-conversation-list {
   display: grid;
   gap: 6px;
 }
@@ -616,6 +617,35 @@ body[data-page="response"] .page-shell {
 .response-model-list .profile-card {
   width: 100%;
   text-align: left;
+}
+
+.response-session-item {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 1px 1px 0 var(--line);
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.response-session-item.is-selected {
+  background: var(--panel-yellow);
+}
+
+.response-session-item strong {
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.response-session-item span {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.5rem;
+  text-transform: uppercase;
 }
 
 .response-status {
@@ -660,30 +690,31 @@ body[data-page="response"] .page-shell {
 
 .response-thread {
   display: grid;
-  gap: 14px;
+  gap: 18px;
   min-height: 0;
   height: 100%;
   overflow: auto;
-  padding: 4px 6px 18px 4px;
+  overflow-x: hidden;
+  padding: 6px 10px 20px 6px;
 }
 
 .chat-bubble {
-  width: fit-content;
-  max-width: min(760px, 84%);
+  width: 100%;
+  max-width: 100%;
+  display: grid;
 }
 
 .chat-bubble.is-user {
   margin-left: auto;
-  padding: 10px 14px;
-  border: 2px solid var(--line);
-  border-radius: 18px;
-  box-shadow: 1px 1px 0 var(--line);
-  background: var(--panel-blue);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .chat-bubble.is-assistant {
   margin-right: auto;
-  max-width: min(880px, 92%);
   padding: 0;
   border: 0;
   box-shadow: none;
@@ -703,13 +734,31 @@ body[data-page="response"] .page-shell {
 }
 
 .chat-bubble-copy {
+  display: block;
+  width: 100%;
+  max-width: min(920px, 100%);
   font-size: 0.8rem;
   line-height: 1.72;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.chat-bubble.is-user .chat-bubble-meta {
+  justify-content: flex-end;
+}
+
+.chat-bubble.is-user .chat-bubble-copy {
+  max-width: min(760px, 100%);
+  margin-left: auto;
+  font-size: 0.88rem;
+  line-height: 1.62;
+  font-weight: 600;
+  text-align: right;
 }
 
 .chat-bubble.is-assistant .chat-bubble-copy {
+  max-width: min(920px, 100%);
   font-size: 0.84rem;
 }
 

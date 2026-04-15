@@ -31,6 +31,7 @@ from call_llm_api.domain.models import (
   ModelRegistryRecord,
 )
 from call_llm_api.infrastructure.llm.openai_compatible import OpenAICompatibleClient
+from call_llm_api.infrastructure.grounding import LocationGrounder, OpenStreetMapLocationGrounder
 from call_llm_api.infrastructure.persistence.base import (
   AgentProfileRepository,
   BenchmarkRunRepository,
@@ -38,6 +39,8 @@ from call_llm_api.infrastructure.persistence.base import (
   ModelRegistryRepository,
 )
 from call_llm_api.infrastructure.tools.registry import ToolRegistry
+
+IDENTITY_QUERY_PATTERN = re.compile(r"(너는\s*누구|누구야|정체가\s*뭐|뭐하는\s*애|what are you|who are you)", re.IGNORECASE)
 
 
 class BenchmarkService:
@@ -51,6 +54,7 @@ class BenchmarkService:
     tool_registry: ToolRegistry,
     settings: Settings,
     runner_registry: BenchmarkRunnerRegistry | None = None,
+    location_grounder: LocationGrounder | None = None,
   ) -> None:
     self._model_registry_repository = model_registry_repository
     self._agent_profile_repository = agent_profile_repository
@@ -59,6 +63,7 @@ class BenchmarkService:
     self._tool_registry = tool_registry
     self._settings = settings
     self._runner_registry = runner_registry or build_default_benchmark_runner_registry()
+    self._location_grounder = location_grounder or OpenStreetMapLocationGrounder()
 
   async def list_registry_models(self) -> list[ModelRegistryRecord]:
     return await self._model_registry_repository.list_models()
@@ -212,11 +217,18 @@ class BenchmarkService:
       raise BadRequestError(f"Agent profile '{profile.name}' is disabled.")
     self._ensure_model_supports_profile(model, profile)
 
+    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata)
+    if grounded_response is not None:
+      grounded_response.setdefault("raw_output", {"grounded": True})
+      grounded_response.setdefault("usage", {})
+      return model, profile, grounded_response
+
+    merged_context_documents = await self._merge_response_context_documents(messages, context_documents)
     case, run = self._build_response_case_and_run(
       model=model,
       profile=profile,
       messages=messages,
-      context_documents=context_documents,
+      context_documents=merged_context_documents,
       temperature=temperature,
       max_tokens=max_tokens,
       metadata=metadata,
@@ -284,11 +296,35 @@ class BenchmarkService:
         f"Streaming is not yet available for tool profiles. '{profile.name}' requires multi-step tool execution."
       )
 
+    grounded_response = await self._maybe_build_grounded_response(profile, messages, metadata)
+    if grounded_response is not None:
+      yield {
+        "event": "run.started",
+        "data": {
+          "model": model.model_dump(mode="json"),
+          "profile": profile.model_dump(mode="json"),
+          "trace": grounded_response["trace"],
+        },
+      }
+      for delta in self._chunk_text(grounded_response["output_text"]):
+        yield {"event": "message.delta", "data": {"delta": delta}}
+      yield {
+        "event": "run.completed",
+        "data": {
+          "output_text": grounded_response["output_text"],
+          "raw_output": {"grounded": True},
+          "trace": grounded_response["trace"],
+          "usage": {},
+        },
+      }
+      return
+
+    merged_context_documents = await self._merge_response_context_documents(messages, context_documents)
     case, run = self._build_response_case_and_run(
       model=model,
       profile=profile,
       messages=messages,
-      context_documents=context_documents,
+      context_documents=merged_context_documents,
       temperature=temperature,
       max_tokens=max_tokens,
       metadata=metadata,
@@ -815,6 +851,71 @@ class BenchmarkService:
       finished_at=None,
     )
     return case, run
+
+  async def _merge_response_context_documents(
+    self,
+    messages: Sequence[ChatMessage],
+    context_documents: list[str] | None,
+  ) -> list[str]:
+    explicit_context = [item for item in (context_documents or []) if isinstance(item, str) and item.strip()]
+    try:
+      grounded_context = await self._location_grounder.build_context_documents(messages)
+    except Exception:
+      grounded_context = []
+    merged: list[str] = []
+    seen: set[str] = set()
+    for item in [*explicit_context, *grounded_context]:
+      normalized = item.strip()
+      if not normalized or normalized in seen:
+        continue
+      seen.add(normalized)
+      merged.append(normalized)
+    return merged
+
+  async def _maybe_build_grounded_response(
+    self,
+    profile: AgentProfileRecord,
+    messages: Sequence[ChatMessage],
+    metadata: dict | None,
+  ) -> dict | None:
+    source = str((metadata or {}).get("source") or "")
+    if source != "response-page" or profile.strategy_kind != AgentStrategyKind.DIRECT:
+      return None
+    identity_response = self._maybe_build_identity_response(messages)
+    if identity_response is not None:
+      return identity_response
+    try:
+      return await self._location_grounder.maybe_build_grounded_response(messages)
+    except Exception:
+      return None
+
+  @staticmethod
+  def _chunk_text(text: str, size: int = 24) -> list[str]:
+    if not text:
+      return []
+    return [text[index:index + size] for index in range(0, len(text), size)]
+
+  @staticmethod
+  def _maybe_build_identity_response(messages: Sequence[ChatMessage]) -> dict | None:
+    latest_user_text = next(
+      (
+        message.content.strip()
+        for message in reversed(messages)
+        if message.role == "user" and isinstance(message.content, str) and message.content.strip()
+      ),
+      "",
+    )
+    if not latest_user_text or not IDENTITY_QUERY_PATTERN.search(latest_user_text):
+      return None
+    return {
+      "output_text": (
+        "저는 callLLM에서 동작하는 AI 어시스턴트예요. "
+        "질문 정리, 정보 설명, 비교, 초안 작성 같은 작업을 도와드릴 수 있어요."
+      ),
+      "trace": [{"event": "grounded.identity_response"}],
+      "raw_output": {"grounded": True},
+      "usage": {},
+    }
 
   @staticmethod
   def _build_missing_model_record(model_id: str, timestamp: datetime) -> ModelRegistryRecord:

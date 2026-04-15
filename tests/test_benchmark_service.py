@@ -4,7 +4,9 @@ from call_llm_api.application.benchmark_runners import BenchmarkRunner, Benchmar
 from call_llm_api.application.services.benchmark_service import BenchmarkService
 from call_llm_api.core.config import Settings
 from call_llm_api.domain.errors import BadRequestError
+from call_llm_api.domain.models import ChatMessage
 from call_llm_api.domain.models import AgentFramework
+from call_llm_api.infrastructure.grounding import LocationGrounder
 from call_llm_api.infrastructure.persistence.in_memory import (
   InMemoryAgentProfileRepository,
   InMemoryBenchmarkRunRepository,
@@ -104,7 +106,12 @@ class StubBenchmarkLLMClient:
 
 
 class BenchmarkServiceHarness(BenchmarkService):
-  def __init__(self, stub_client: StubBenchmarkLLMClient, runner_registry: BenchmarkRunnerRegistry | None = None) -> None:
+  def __init__(
+    self,
+    stub_client: StubBenchmarkLLMClient,
+    runner_registry: BenchmarkRunnerRegistry | None = None,
+    location_grounder: LocationGrounder | None = None,
+  ) -> None:
     super().__init__(
       model_registry_repository=InMemoryModelRegistryRepository(),
       agent_profile_repository=InMemoryAgentProfileRepository(),
@@ -116,6 +123,7 @@ class BenchmarkServiceHarness(BenchmarkService):
         provider_api_key="test-token",
       ),
       runner_registry=runner_registry,
+      location_grounder=location_grounder,
     )
     self._stub_client = stub_client
 
@@ -140,6 +148,21 @@ class ExplodingCustomRunner(BenchmarkRunner):
   async def run_case(self, context):
     _ = context
     raise ValueError("runner exploded")
+
+
+class StubLocationGrounder(LocationGrounder):
+  def __init__(self, documents: list[str]) -> None:
+    self.documents = documents
+    self.messages: list[list[ChatMessage]] = []
+    self.grounded_response: dict | None = None
+
+  async def build_context_documents(self, messages):
+    self.messages.append(list(messages))
+    return list(self.documents)
+
+  async def maybe_build_grounded_response(self, messages):
+    self.messages.append(list(messages))
+    return self.grounded_response
 
 
 def test_execute_direct_benchmark_run_records_successful_result() -> None:
@@ -323,8 +346,162 @@ def test_execute_profile_response_includes_rag_context_and_temperature() -> None
     assert result["output_text"] == "Expected benchmark answer"
     assert stub_client.payloads[-1]["temperature"] == 0.4
     assert stub_client.payloads[-1]["chat_template_kwargs"]["enable_thinking"] is False
-    assert "Retrieved context" in stub_client.payloads[-1]["messages"][0]["content"]
+    assert "Grounded context" in stub_client.payloads[-1]["messages"][0]["content"]
     assert "Alpha document" in stub_client.payloads[-1]["messages"][0]["content"]
+
+  asyncio.run(run_test())
+
+
+def test_execute_profile_response_includes_grounded_context_for_direct_response_mode() -> None:
+  async def run_test() -> None:
+    stub_client = StubBenchmarkLLMClient()
+    stub_grounder = StubLocationGrounder(
+      [
+        "Location lookup: 홍파동, 교남동, 종로구, 서울특별시",
+        "Nearby subway stations: 서대문(574m), 독립문(761m), 경복궁(930m)",
+      ]
+    )
+    service = BenchmarkServiceHarness(stub_client, location_grounder=stub_grounder)
+
+    model = await service.register_model(
+      name="Stub Model",
+      provider="vllm",
+      base_url="http://127.0.0.1:18001",
+      served_model_name="stub-model",
+      api_type="openai_compatible",
+      api_key="test-token",
+      enabled=True,
+      capabilities={"chat_completions": True},
+      default_params={},
+      metadata={},
+    )
+    profile = await service.create_agent_profile(
+      name="Direct",
+      description="baseline",
+      strategy_kind="direct",
+      framework="custom",
+      system_prompt=None,
+      tool_names=[],
+      retrieval_policy={},
+      generation_defaults={},
+      metadata={},
+      enabled=True,
+    )
+
+    await service.execute_profile_response(
+      model_id=model.id,
+      profile_id=profile.id,
+      messages=[ChatMessage(role="user", content="서울특별시 종로구 홍파동 주변역이 뭐야?")],
+      context_documents=[],
+      temperature=0.7,
+      metadata={"source": "test"},
+    )
+
+    system_message = stub_client.payloads[-1]["messages"][0]
+    assert system_message["role"] == "system"
+    assert "Avoid markdown tables" in system_message["content"]
+    assert "Grounded context" in system_message["content"]
+    assert "서대문(574m)" in system_message["content"]
+    assert len(stub_grounder.messages) == 1
+
+  asyncio.run(run_test())
+
+
+def test_execute_profile_response_uses_grounded_response_for_response_page() -> None:
+  async def run_test() -> None:
+    stub_client = StubBenchmarkLLMClient()
+    stub_grounder = StubLocationGrounder([])
+    stub_grounder.grounded_response = {
+      "output_text": "홍파동은 서대문역과 독립문역 생활권에 가깝습니다.",
+      "trace": [{"event": "grounded.location_response"}],
+    }
+    service = BenchmarkServiceHarness(stub_client, location_grounder=stub_grounder)
+
+    model = await service.register_model(
+      name="Stub Model",
+      provider="vllm",
+      base_url="http://127.0.0.1:18001",
+      served_model_name="stub-model",
+      api_type="openai_compatible",
+      api_key="test-token",
+      enabled=True,
+      capabilities={"chat_completions": True},
+      default_params={},
+      metadata={},
+    )
+    profile = await service.create_agent_profile(
+      name="Direct",
+      description="baseline",
+      strategy_kind="direct",
+      framework="custom",
+      system_prompt=None,
+      tool_names=[],
+      retrieval_policy={},
+      generation_defaults={},
+      metadata={},
+      enabled=True,
+    )
+
+    _, _, result = await service.execute_profile_response(
+      model_id=model.id,
+      profile_id=profile.id,
+      messages=[ChatMessage(role="user", content="서울특별시 종로구 홍파동 주변역이 뭐야?")],
+      context_documents=[],
+      temperature=0.7,
+      metadata={"source": "response-page"},
+    )
+
+    assert result["output_text"] == "홍파동은 서대문역과 독립문역 생활권에 가깝습니다."
+    assert result["trace"][0]["event"] == "grounded.location_response"
+    assert result["raw_output"] == {"grounded": True}
+    assert result["usage"] == {}
+    assert stub_client.payloads == []
+
+  asyncio.run(run_test())
+
+
+def test_execute_profile_response_uses_identity_override_for_response_page() -> None:
+  async def run_test() -> None:
+    stub_client = StubBenchmarkLLMClient()
+    service = BenchmarkServiceHarness(stub_client, location_grounder=StubLocationGrounder([]))
+
+    model = await service.register_model(
+      name="Stub Model",
+      provider="vllm",
+      base_url="http://127.0.0.1:18001",
+      served_model_name="stub-model",
+      api_type="openai_compatible",
+      api_key="test-token",
+      enabled=True,
+      capabilities={"chat_completions": True},
+      default_params={},
+      metadata={},
+    )
+    profile = await service.create_agent_profile(
+      name="Direct",
+      description="baseline",
+      strategy_kind="direct",
+      framework="custom",
+      system_prompt=None,
+      tool_names=[],
+      retrieval_policy={},
+      generation_defaults={},
+      metadata={},
+      enabled=True,
+    )
+
+    _, _, result = await service.execute_profile_response(
+      model_id=model.id,
+      profile_id=profile.id,
+      messages=[ChatMessage(role="user", content="안녕하세요. 너는 누구야?")],
+      context_documents=[],
+      temperature=0.7,
+      metadata={"source": "response-page"},
+    )
+
+    assert "callLLM에서 동작하는 AI 어시스턴트" in result["output_text"]
+    assert result["trace"][0]["event"] == "grounded.identity_response"
+    assert stub_client.payloads == []
 
   asyncio.run(run_test())
 
