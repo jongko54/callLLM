@@ -21,7 +21,9 @@ const CURRENT_PAGE = (() => {
 const STORAGE_KEYS = {
   selectedModels: "callllm:selected-models:v2",
   selectedLibrary: "callllm:selected-library:v2",
+  selectedLibraryMode: "callllm:selected-library-mode:v1",
   selectedApp: "callllm:selected-app:v2",
+  selectedAppMode: "callllm:selected-app-mode:v1",
   selectedProfile: "callllm:selected-profile:v2",
   selectedProfiles: "callllm:selected-profiles:v3",
   promptDraft: "callllm:prompt-draft:v1",
@@ -47,11 +49,20 @@ const RESPONSE_GROUNDING_MODES = [
   { id: "grounded", name: "Grounded" },
 ];
 
+const SELECTION_MODES = {
+  auto: "auto",
+  manual: "manual",
+};
+
 function normalizeTheme(value) {
   if (value === "dark") {
     return "yellow";
   }
   return THEMES.includes(value) ? value : "blue";
+}
+
+function normalizeSelectionMode(value) {
+  return value === SELECTION_MODES.manual ? SELECTION_MODES.manual : SELECTION_MODES.auto;
 }
 
 const LIBRARIES = [
@@ -100,11 +111,12 @@ const APP_TEMPLATES = [
     name: "Benchmark Studio",
     profileId: "direct-chat",
     badge: "Baseline",
+    description: "Neutral single-lane compare flow for quick baseline checks.",
     supportedStrategies: ["direct"],
     nodes: [
-      { id: "prompt", kind: "prompt", title: "Prompt", body: "Single shared user prompt for every selected model.", x: 48, y: 224 },
-      { id: "router", kind: "router", title: "Model Router", body: "Fan out to every checked model card in the catalog.", x: 318, y: 224 },
-      { id: "llm", kind: "llm", title: "LLM Runtime", body: "Benchmark the same payload against each selected runtime.", x: 588, y: 224 },
+      { id: "prompt", kind: "prompt", title: "Prompt", body: "Single shared user prompt for the active model.", x: 48, y: 224 },
+      { id: "router", kind: "router", title: "Model Router", body: "Route the case into the chosen model card in the catalog.", x: 318, y: 224 },
+      { id: "llm", kind: "llm", title: "LLM Runtime", body: "Benchmark the payload against the selected runtime.", x: 588, y: 224 },
       { id: "judge", kind: "evaluator", title: "Evaluator", body: "Aggregate latency, pass rate, and output snapshots.", x: 858, y: 224 },
     ],
     edges: [
@@ -114,10 +126,31 @@ const APP_TEMPLATES = [
     ],
   },
   {
+    id: "qwen-reasoning-desk",
+    name: "Qwen Reasoning Desk",
+    profileId: "opencode-plan",
+    preferredLibraryId: "opencode-runtime",
+    badge: "Qwen fit",
+    description: "Planner-first answer lane tuned for Qwen-style decomposition before the final response.",
+    supportedStrategies: ["direct"],
+    modelFamilies: ["qwen"],
+    autoRecommend: true,
+    nodes: [
+      { id: "prompt", kind: "prompt", title: "Prompt", body: "User request plus the output target for the final answer.", x: 44, y: 224 },
+      { id: "planner", kind: "planner", title: "Reasoning Frame", body: "Break the request into a compact internal plan before response generation.", x: 352, y: 224 },
+      { id: "llm", kind: "llm", title: "Qwen Final Answer", body: "Generate the final user-facing answer from the reasoning frame.", x: 660, y: 224 },
+    ],
+    edges: [
+      { from: "prompt", to: "planner" },
+      { from: "planner", to: "llm" },
+    ],
+  },
+  {
     id: "rag-lab",
     name: "RAG Lab",
     profileId: "rag-context",
     badge: "Grounded",
+    description: "Context-first retrieval lane for grounded comparison runs.",
     supportedStrategies: ["rag"],
     nodes: [
       { id: "prompt", kind: "prompt", title: "Prompt", body: "Question and evaluation target.", x: 48, y: 184 },
@@ -134,10 +167,50 @@ const APP_TEMPLATES = [
     ],
   },
   {
+    id: "gemma-grounded-lane",
+    name: "Gemma Grounded Lane",
+    profileId: "rag-context",
+    preferredLibraryId: "custom-runtime",
+    badge: "Gemma fit",
+    description: "Grounded answer lane that filters context first and keeps Gemma on a tight evidence path.",
+    supportedStrategies: ["rag"],
+    modelFamilies: ["gemma"],
+    autoRecommend: true,
+    nodes: [
+      { id: "prompt", kind: "prompt", title: "Prompt", body: "Question plus the exact answer shape you want Gemma to produce.", x: 44, y: 184 },
+      { id: "docs", kind: "context", title: "Grounding Notes", body: "Short evidence snippets, specs, or product facts to anchor the response.", x: 324, y: 72 },
+      { id: "retriever", kind: "retriever", title: "Context Filter", body: "Keep only the evidence that should survive into the final response.", x: 352, y: 292 },
+      { id: "llm", kind: "llm", title: "Gemma Final Answer", body: "Compose the final grounded answer from the filtered notes.", x: 660, y: 224 },
+    ],
+    edges: [
+      { from: "docs", to: "retriever" },
+      { from: "prompt", to: "retriever" },
+      { from: "retriever", to: "llm" },
+    ],
+  },
+  {
+    id: "gemma-quick-lane",
+    name: "Gemma Quick Lane",
+    profileId: "direct-chat",
+    preferredLibraryId: "custom-runtime",
+    badge: "Gemma fast",
+    description: "Compressed direct answer lane for short prompts and lower-latency responses.",
+    supportedStrategies: ["direct"],
+    modelFamilies: ["gemma"],
+    nodes: [
+      { id: "prompt", kind: "prompt", title: "Prompt", body: "Short user request with a clear target answer shape.", x: 88, y: 224 },
+      { id: "llm", kind: "llm", title: "Gemma Quick Answer", body: "Return the final answer directly without retrieval or planning stages.", x: 452, y: 224 },
+    ],
+    edges: [
+      { from: "prompt", to: "llm" },
+    ],
+  },
+  {
     id: "tool-orchestrator",
     name: "Tool Agent",
     profileId: "tool-agent",
     badge: "Agent",
+    description: "Planner-plus-tools lane for models that can call functions before answering.",
     supportedStrategies: ["tool"],
     nodes: [
       { id: "prompt", kind: "prompt", title: "Prompt", body: "Instruction that can trigger tools before final output.", x: 44, y: 220 },
@@ -160,7 +233,7 @@ const NODE_PALETTE = [
   { kind: "prompt", title: "Prompt", body: "User instruction and success criteria." },
   { kind: "context", title: "Context", body: "Reference notes or retrieved chunks." },
   { kind: "retriever", title: "Retriever", body: "Turn context into a grounded input step." },
-  { kind: "router", title: "Router", body: "Split one case across many selected models." },
+  { kind: "router", title: "Router", body: "Route one case into the active model runtime." },
   { kind: "planner", title: "Planner", body: "Choose tools or agent branches." },
   { kind: "tool", title: "Tool", body: "Builtin function or external capability." },
   { kind: "llm", title: "LLM", body: "Inference call to the selected runtime." },
@@ -182,6 +255,26 @@ const WORKFLOW_CONNECTIONS = {
 const SLOT_DIMENSIONS = {
   width: 118,
   height: 40,
+};
+
+const WORKFLOW_LAYOUT = {
+  nodeWidth: 196,
+  nodeHeight: 92,
+  startX: 36,
+  startY: 92,
+  columnGap: 286,
+  rowGap: 138,
+};
+
+const NODE_KIND_ORDER = {
+  prompt: 0,
+  context: 1,
+  retriever: 2,
+  planner: 3,
+  router: 4,
+  tool: 5,
+  llm: 6,
+  evaluator: 7,
 };
 
 const elements = {
@@ -238,9 +331,11 @@ const state = {
   },
   registryModels: [],
   agentProfiles: [],
-  selectedModelIds: new Set(readStoredArray(STORAGE_KEYS.selectedModels)),
+  selectedModelIds: new Set(readStoredArray(STORAGE_KEYS.selectedModels).slice(-1)),
   selectedLibraryId: localStorage.getItem(STORAGE_KEYS.selectedLibrary) || LIBRARIES[0].id,
+  selectedLibraryMode: normalizeSelectionMode(localStorage.getItem(STORAGE_KEYS.selectedLibraryMode)),
   selectedAppId: localStorage.getItem(STORAGE_KEYS.selectedApp) || APP_TEMPLATES[0].id,
+  selectedAppMode: normalizeSelectionMode(localStorage.getItem(STORAGE_KEYS.selectedAppMode)),
   selectedProfileIds: new Set(
     uniqueValues([
       ...readStoredArray(STORAGE_KEYS.selectedProfiles),
@@ -280,6 +375,40 @@ function readStoredArray(key) {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function getPromptDraft() {
+  try {
+    return sessionStorage.getItem(STORAGE_KEYS.promptDraft) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setPromptDraft(value) {
+  try {
+    sessionStorage.setItem(STORAGE_KEYS.promptDraft, String(value || ""));
+  } catch {
+    // Ignore storage write failures in restricted environments.
+  }
+}
+
+function clearPromptDraft() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEYS.promptDraft);
+  } catch {
+    // Ignore storage write failures in restricted environments.
+  }
+}
+
+function isReloadNavigation() {
+  try {
+    const navigationEntries = performance.getEntriesByType("navigation");
+    const navigationEntry = Array.isArray(navigationEntries) ? navigationEntries[0] : navigationEntries?.[0];
+    return navigationEntry?.type === "reload";
+  } catch {
+    return false;
   }
 }
 
@@ -353,6 +482,152 @@ function uniqueValues(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function getTemplateById(appId) {
+  return APP_TEMPLATES.find((template) => template.id === appId) || null;
+}
+
+function getModelSearchText(model) {
+  return [
+    model?.id,
+    model?.name,
+    model?.served_model_name,
+    model?.provider,
+    model?.metadata?.reasoning_mode,
+    model?.metadata?.notes,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function getModelFamily(model) {
+  const text = getModelSearchText(model);
+  if (!text) {
+    return "generic";
+  }
+  if (text.includes("gemma-4") || text.includes("gemma4")) {
+    return "gemma";
+  }
+  if (text.includes("qwen3") || text.includes("qwen-3") || text.includes("qwen")) {
+    return "qwen";
+  }
+  return "generic";
+}
+
+function getPrimarySelectedModel() {
+  return getSelectedModels()[0]
+    || state.registryModels.find((model) => state.selectedModelIds.has(model.id))
+    || null;
+}
+
+function getCurrentModelFamily() {
+  return getModelFamily(getPrimarySelectedModel());
+}
+
+function appTargetsModelFamily(app, family) {
+  return Array.isArray(app?.modelFamilies) && app.modelFamilies.includes(family);
+}
+
+function appMatchesSelectedModelFamily(app, family = getCurrentModelFamily()) {
+  if (!Array.isArray(app?.modelFamilies) || app.modelFamilies.length === 0) {
+    return true;
+  }
+  if (!family || family === "generic") {
+    return false;
+  }
+  return appTargetsModelFamily(app, family);
+}
+
+function appMatchesSelectedLibrary(app, selectedLibraryId = getSelectedLibrary().id) {
+  if (!app?.preferredLibraryId) {
+    return true;
+  }
+  return app.preferredLibraryId === selectedLibraryId;
+}
+
+function getVisibleProfilesForLibrary(libraryId = getSelectedLibrary().id) {
+  return uniqueProfilesById(
+    getEnabledProfiles().filter((profile) =>
+      profileMatchesLibrary(profile, libraryId)
+      && profileIsRunnableForModels(profile, getBenchmarkScopeModels())
+    )
+  );
+}
+
+function getRecommendedTemplateForModel(model) {
+  const family = getModelFamily(model);
+  const availableLibraries = getAvailableLibraries();
+  return APP_TEMPLATES.find((template) =>
+    template.autoRecommend === true
+    && appTargetsModelFamily(template, family)
+    && (() => {
+      const targetLibraryId = state.selectedLibraryMode === SELECTION_MODES.manual
+        ? state.selectedLibraryId
+        : (template.preferredLibraryId || state.selectedLibraryId);
+      if (template.preferredLibraryId && state.selectedLibraryMode === SELECTION_MODES.manual) {
+        return template.preferredLibraryId === targetLibraryId;
+      }
+      if (!availableLibraries.some((library) => library.id === targetLibraryId)) {
+        return false;
+      }
+      const supportedStrategies = new Set(
+        getVisibleProfilesForLibrary(targetLibraryId).map((profile) => String(profile.strategy_kind || "direct"))
+      );
+      return (template.supportedStrategies || []).some((strategy) => supportedStrategies.has(strategy));
+    })()
+  )
+    || getTemplateById("compare-studio")
+    || APP_TEMPLATES[0]
+    || null;
+}
+
+function getAppFitLabel(app, model = getPrimarySelectedModel()) {
+  const family = getModelFamily(model);
+  if (family === "generic" || !appTargetsModelFamily(app, family)) {
+    return "";
+  }
+  return family === "gemma" ? "recommended for gemma" : "recommended for qwen";
+}
+
+function maybeApplyRecommendedStructure({ forceProfile = true, replaceDefault = false } = {}) {
+  const model = getPrimarySelectedModel();
+  const recommendedTemplate = getRecommendedTemplateForModel(model);
+  if (!recommendedTemplate) {
+    return false;
+  }
+
+  const currentTemplate = getTemplateById(state.selectedAppId);
+  const family = getModelFamily(model);
+  const shouldReplaceDefault = replaceDefault
+    && state.selectedAppMode !== SELECTION_MODES.manual
+    && currentTemplate?.id === "compare-studio"
+    && recommendedTemplate.id !== currentTemplate.id;
+  const shouldReplaceMismatchedAuto = currentTemplate?.autoRecommend === true
+    && state.selectedAppMode !== SELECTION_MODES.manual
+    && !appTargetsModelFamily(currentTemplate, family)
+    && recommendedTemplate.id !== currentTemplate.id;
+
+  if (!shouldReplaceDefault && !shouldReplaceMismatchedAuto) {
+    return false;
+  }
+
+  applyTemplateById(recommendedTemplate.id, {
+    forceProfile,
+    selectionMode: SELECTION_MODES.auto,
+  });
+  return true;
+}
+
+function normalizeSingleModelSelection(preferredModelId = "") {
+  const selectedModelIds = uniqueValues([...state.selectedModelIds]);
+  const fallbackModelId = selectedModelIds[selectedModelIds.length - 1] || "";
+  const nextModelId = preferredModelId && selectedModelIds.includes(preferredModelId)
+    ? preferredModelId
+    : fallbackModelId;
+
+  state.selectedModelIds = nextModelId ? new Set([nextModelId]) : new Set();
+}
+
 function uniqueProfilesById(profiles) {
   const seen = new Set();
   return profiles.filter((profile) => {
@@ -419,6 +694,115 @@ function findNodePath(startIds, targetIds, adjacency, allowedIds = null) {
   }
 
   return [];
+}
+
+function relayoutWorkflowGraph({ preserveOrder = false } = {}) {
+  if (!elements.canvasSurface || !Array.isArray(state.workflow?.nodes) || state.workflow.nodes.length === 0) {
+    return;
+  }
+
+  const nodes = state.workflow.nodes;
+  const edges = state.workflow.edges || [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = new Map(nodes.map((node) => [node.id, []]));
+  const incomingCount = new Map(nodes.map((node) => [node.id, 0]));
+
+  edges.forEach((edge) => {
+    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) {
+      return;
+    }
+    outgoing.get(edge.from)?.push(edge.to);
+    incomingCount.set(edge.to, (incomingCount.get(edge.to) || 0) + 1);
+  });
+
+  const levels = new Map();
+  const queue = [];
+
+  nodes.forEach((node) => {
+    if ((incomingCount.get(node.id) || 0) === 0) {
+      levels.set(node.id, 0);
+      queue.push(node.id);
+    }
+  });
+
+  if (queue.length === 0 && nodes[0]) {
+    levels.set(nodes[0].id, 0);
+    queue.push(nodes[0].id);
+  }
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    const nextLevel = (levels.get(currentId) || 0) + 1;
+    (outgoing.get(currentId) || []).forEach((nextId) => {
+      const knownLevel = levels.get(nextId);
+      if (knownLevel === undefined || nextLevel > knownLevel) {
+        levels.set(nextId, nextLevel);
+        queue.push(nextId);
+      }
+    });
+  }
+
+  let fallbackLevel = Math.max(0, ...levels.values());
+  nodes.forEach((node) => {
+    if (!levels.has(node.id)) {
+      fallbackLevel += 1;
+      levels.set(node.id, fallbackLevel);
+    }
+  });
+
+  const groups = new Map();
+  nodes.forEach((node) => {
+    const level = levels.get(node.id) || 0;
+    if (!groups.has(level)) {
+      groups.set(level, []);
+    }
+    groups.get(level).push(node);
+  });
+
+  const maxX = Math.max(24, elements.canvasSurface.clientWidth - WORKFLOW_LAYOUT.nodeWidth - 24);
+  const maxY = Math.max(24, elements.canvasSurface.clientHeight - WORKFLOW_LAYOUT.nodeHeight - 24);
+
+  [...groups.keys()].sort((a, b) => a - b).forEach((level) => {
+    const group = groups.get(level) || [];
+    group.sort((left, right) => {
+      const leftOrder = NODE_KIND_ORDER[left.kind] ?? 99;
+      const rightOrder = NODE_KIND_ORDER[right.kind] ?? 99;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      if (preserveOrder) {
+        if (left.x !== right.x) {
+          return left.x - right.x;
+        }
+        if (left.y !== right.y) {
+          return left.y - right.y;
+        }
+      } else if (left.y !== right.y) {
+        return left.y - right.y;
+      }
+      return String(left.title || left.id).localeCompare(String(right.title || right.id));
+    });
+
+    const totalHeight = (group.length - 1) * WORKFLOW_LAYOUT.rowGap;
+    const startY = clamp(
+      Math.round((elements.canvasSurface.clientHeight - totalHeight - WORKFLOW_LAYOUT.nodeHeight) / 2),
+      WORKFLOW_LAYOUT.startY,
+      maxY
+    );
+
+    group.forEach((node, index) => {
+      node.x = clamp(
+        WORKFLOW_LAYOUT.startX + (level * WORKFLOW_LAYOUT.columnGap),
+        24,
+        maxX
+      );
+      node.y = clamp(
+        startY + (index * WORKFLOW_LAYOUT.rowGap),
+        24,
+        maxY
+      );
+    });
+  });
 }
 
 function analyzeWorkflow(workflow = state.workflow) {
@@ -820,13 +1204,7 @@ function getAvailableLibraries() {
 }
 
 function getVisibleProfiles() {
-  const selectedLibrary = getSelectedLibrary();
-  return uniqueProfilesById(
-    getEnabledProfiles().filter((profile) =>
-      profileMatchesLibrary(profile, selectedLibrary.id)
-      && profileIsRunnableForModels(profile, getBenchmarkScopeModels())
-    )
-  );
+  return getVisibleProfilesForLibrary(getSelectedLibrary().id);
 }
 
 function getAppCompatibleProfiles() {
@@ -840,12 +1218,14 @@ function getAvailableApps() {
   const strategies = new Set(getVisibleProfiles().map((profile) => String(profile.strategy_kind || "direct")));
   return APP_TEMPLATES.filter((template) =>
     (template.supportedStrategies || []).some((strategy) => strategies.has(strategy))
+    && appMatchesSelectedModelFamily(template)
+    && appMatchesSelectedLibrary(template)
   );
 }
 
 function getCaseDraft() {
   return {
-    prompt: elements.promptInput?.value ?? "",
+    prompt: elements.promptInput?.value ?? getPromptDraft(),
     context: elements.contextInput?.value ?? localStorage.getItem(STORAGE_KEYS.contextDraft) ?? "",
     expected: elements.expectedInput?.value ?? localStorage.getItem(STORAGE_KEYS.expectedDraft) ?? API_CONFIG.defaultExpected,
     temperature: elements.temperatureInput?.value ?? localStorage.getItem(STORAGE_KEYS.temperatureDraft) ?? String(API_CONFIG.defaultTemperature),
@@ -987,15 +1367,40 @@ function getProfileRuntimeNote(profile) {
 }
 
 function persistSelections() {
+  normalizeSingleModelSelection();
   localStorage.setItem(STORAGE_KEYS.selectedModels, JSON.stringify([...state.selectedModelIds]));
   localStorage.setItem(STORAGE_KEYS.selectedLibrary, state.selectedLibraryId);
   localStorage.setItem(STORAGE_KEYS.selectedApp, state.selectedAppId);
+  localStorage.setItem(STORAGE_KEYS.selectedLibraryMode, normalizeSelectionMode(state.selectedLibraryMode));
+  localStorage.setItem(STORAGE_KEYS.selectedAppMode, normalizeSelectionMode(state.selectedAppMode));
   localStorage.setItem(STORAGE_KEYS.selectedProfiles, JSON.stringify([...state.selectedProfileIds]));
   localStorage.setItem(STORAGE_KEYS.selectedProfile, [...state.selectedProfileIds][0] || "");
 }
 
+function restoreSelectionsFromStorage() {
+  state.selectedModelIds = new Set(readStoredArray(STORAGE_KEYS.selectedModels).slice(-1));
+  state.selectedLibraryId = localStorage.getItem(STORAGE_KEYS.selectedLibrary) || state.selectedLibraryId;
+  state.selectedLibraryMode = normalizeSelectionMode(localStorage.getItem(STORAGE_KEYS.selectedLibraryMode));
+  state.selectedAppId = localStorage.getItem(STORAGE_KEYS.selectedApp) || state.selectedAppId;
+  state.selectedAppMode = normalizeSelectionMode(localStorage.getItem(STORAGE_KEYS.selectedAppMode));
+  state.selectedProfileIds = new Set(
+    uniqueValues([
+      ...readStoredArray(STORAGE_KEYS.selectedProfiles),
+      localStorage.getItem(STORAGE_KEYS.selectedProfile) || "",
+    ])
+  );
+}
+
+function syncViewFromStorage() {
+  restoreSelectionsFromStorage();
+  syncSelections();
+  renderAll();
+}
+
 function persistCaseDraft() {
-  localStorage.removeItem(STORAGE_KEYS.promptDraft);
+  if (elements.promptInput) {
+    setPromptDraft(elements.promptInput.value);
+  }
   if (elements.contextInput) {
     localStorage.setItem(STORAGE_KEYS.contextDraft, elements.contextInput.value);
   }
@@ -1060,12 +1465,16 @@ function renderHeaderMeta() {
   const selectedApp = getSelectedApp();
   const selectedProfiles = getSelectedProfiles();
   const selectedModels = getSelectedModels();
+  const selectedModel = selectedModels[0] || null;
   const baseLabel = state.connection.baseUrl
     ? state.connection.baseUrl.replace(/^https?:\/\//, "")
     : "오프라인";
   const profileTitle = selectedProfiles.length
     ? selectedProfiles.map((profile) => profile.name).join(", ")
     : "전략 선택 필요";
+  const appFitLabel = getAppFitLabel(selectedApp, selectedModel);
+  const appDescription = [selectedApp.description, appFitLabel].filter(Boolean).join(" · ");
+  const profileDescription = selectedProfiles[0]?.description || "";
 
   if (elements.workspaceText) {
     elements.workspaceText.textContent = state.activeView === "workflow"
@@ -1081,13 +1490,13 @@ function renderHeaderMeta() {
     elements.activeAppTitle.textContent = selectedApp.name;
   }
   if (elements.activeAppDescription) {
-    elements.activeAppDescription.textContent = "";
+    elements.activeAppDescription.textContent = appDescription;
   }
   if (elements.activeProfileTitle) {
     elements.activeProfileTitle.textContent = profileTitle;
   }
   if (elements.activeProfileDescription) {
-    elements.activeProfileDescription.textContent = "";
+    elements.activeProfileDescription.textContent = profileDescription;
   }
   if (elements.baseUrlText) {
     elements.baseUrlText.textContent = baseLabel;
@@ -1130,10 +1539,12 @@ function renderModels() {
       const isSelectable = model.enabled !== false
         && model.health_status !== "unhealthy"
         && model.capabilities?.chat_completions !== false;
+      const modelFamily = getModelFamily(model);
       const capabilities = Object.entries(model.capabilities || {})
         .filter(([, value]) => Boolean(value))
         .slice(0, 3)
         .map(([key]) => key.replace(/_/g, " "));
+      const familyPill = modelFamily !== "generic" ? `<span class="meta-pill">${escapeHtml(modelFamily)}</span>` : "";
 
       return `
         <button
@@ -1141,6 +1552,7 @@ function renderModels() {
           type="button"
           data-action="toggle-model"
           data-model-id="${model.id}"
+          aria-pressed="${isSelected ? "true" : "false"}"
           ${isSelectable ? "" : "disabled"}
         >
           <span class="card-kicker">
@@ -1151,6 +1563,7 @@ function renderModels() {
           <div class="card-meta">
             <span class="meta-pill is-accent">${escapeHtml(model.served_model_name)}</span>
             <span class="meta-pill">${isSelectable ? "ready" : "blocked"}</span>
+            ${familyPill}
             ${capabilities.map((capability) => `<span class="meta-pill">${escapeHtml(capability)}</span>`).join("")}
           </div>
         </button>
@@ -1200,6 +1613,7 @@ function renderApps() {
 
   elements.appsGrid.innerHTML = availableApps.map((app) => {
     const isSelected = app.id === state.selectedAppId;
+    const fitLabel = getAppFitLabel(app);
     return `
       <button
         class="catalog-card ${isSelected ? "is-selected" : ""}"
@@ -1211,6 +1625,7 @@ function renderApps() {
         <h3>${escapeHtml(app.name)}</h3>
         <div class="card-meta">
           <span class="meta-pill is-accent">${escapeHtml(app.badge)}</span>
+          ${fitLabel ? `<span class="meta-pill">${escapeHtml(fitLabel)}</span>` : ""}
           <span class="meta-pill">${app.nodes.length} nodes</span>
         </div>
       </button>
@@ -1958,6 +2373,7 @@ function renderResultsFeed() {
 }
 
 function renderAll() {
+  normalizeSingleModelSelection();
   syncHistorySelection();
   renderTheme();
   renderViewMode();
@@ -2025,20 +2441,25 @@ function syncSelections() {
   );
   const nextSelectedModels = [...state.selectedModelIds].filter((modelId) => validModelIds.has(modelId));
   state.selectedModelIds = new Set(nextSelectedModels);
+  normalizeSingleModelSelection();
 
   const readyModels = state.registryModels.filter((model) => isModelReadyForChat(model));
   if (state.selectedModelIds.size === 0 && readyModels.length > 0) {
     state.selectedModelIds.add(readyModels[0].id);
   }
 
+  maybeApplyRecommendedStructure({ forceProfile: true, replaceDefault: true });
+
   const availableLibraries = getAvailableLibraries();
   if (!availableLibraries.some((library) => library.id === state.selectedLibraryId)) {
     state.selectedLibraryId = availableLibraries[0]?.id || LIBRARIES[0]?.id || "";
+    state.selectedLibraryMode = SELECTION_MODES.auto;
   }
 
   const availableApps = getAvailableApps();
   if (!availableApps.some((template) => template.id === state.selectedAppId)) {
     state.selectedAppId = availableApps[0]?.id || APP_TEMPLATES[0]?.id || "";
+    state.selectedAppMode = SELECTION_MODES.auto;
   }
 
   const selectedApp = getSelectedApp();
@@ -2075,13 +2496,27 @@ function syncSelections() {
   persistResponseProfile();
 }
 
-function applyTemplateById(appId, { forceProfile = true } = {}) {
+function applyTemplateById(appId, { forceProfile = true, selectionMode = null } = {}) {
   const template = APP_TEMPLATES.find((item) => item.id === appId);
   if (!template) {
     return;
   }
 
+  if (template.preferredLibraryId) {
+    const availableLibraries = getAvailableLibraries();
+    const canSwitchLibrary = state.selectedLibraryMode !== SELECTION_MODES.manual || selectionMode === SELECTION_MODES.manual;
+    if (canSwitchLibrary && availableLibraries.some((library) => library.id === template.preferredLibraryId)) {
+      state.selectedLibraryId = template.preferredLibraryId;
+      state.selectedLibraryMode = selectionMode === SELECTION_MODES.manual
+        ? SELECTION_MODES.auto
+        : state.selectedLibraryMode;
+    }
+  }
+
   state.selectedAppId = template.id;
+  if (selectionMode !== null) {
+    state.selectedAppMode = normalizeSelectionMode(selectionMode);
+  }
   clearInsertionMode();
   state.workflow = {
     templateId: template.id,
@@ -2099,8 +2534,7 @@ function applyTemplateById(appId, { forceProfile = true } = {}) {
 }
 
 function autoLayoutWorkflow() {
-  const template = getSelectedApp();
-  applyTemplateById(template.id);
+  relayoutWorkflowGraph();
   renderAll();
 }
 
@@ -2114,20 +2548,22 @@ function toggleModelSelection(modelId) {
   if (!model || model.enabled === false || model.health_status === "unhealthy" || model.capabilities?.chat_completions === false) {
     return;
   }
-  if (state.selectedModelIds.has(modelId)) {
-    if (state.selectedModelIds.size === 1) {
-      return;
-    }
-    state.selectedModelIds.delete(modelId);
-  } else {
-    state.selectedModelIds.add(modelId);
+  if (state.selectedModelIds.has(modelId) && state.selectedModelIds.size === 1) {
+    return;
   }
-  persistSelections();
+  const previousAppId = state.selectedAppId;
+  state.selectedModelIds = new Set([modelId]);
+  syncSelections();
+  if (state.selectedAppId !== previousAppId) {
+    const selectedApp = getSelectedApp();
+    setStatus(`${model.name}에 맞춰 ${selectedApp.name} 구조로 전환했습니다.`);
+  }
   renderAll();
 }
 
 function selectLibrary(libraryId) {
   state.selectedLibraryId = libraryId;
+  state.selectedLibraryMode = SELECTION_MODES.manual;
   state.selectedProfileIds = new Set();
   syncSelections();
   applyTemplateById(state.selectedAppId, { forceProfile: false });
@@ -2153,7 +2589,7 @@ function toggleProfileSelection(profileId) {
 }
 
 function selectApp(appId) {
-  applyTemplateById(appId);
+  applyTemplateById(appId, { selectionMode: SELECTION_MODES.manual });
   renderAll();
 }
 
@@ -2702,6 +3138,7 @@ function insertNodeIntoSlot(slotId) {
   state.selectedNodeId = nextNode.id;
   clearInsertionMode();
   syncSelections();
+  relayoutWorkflowGraph({ preserveOrder: true });
   const workflowAnalysis = analyzeWorkflow();
   setStatus(
     workflowAnalysis.isRunnable
@@ -3364,8 +3801,10 @@ function attachEventListeners() {
 
 async function initializeApp() {
   if (elements.promptInput) {
-    localStorage.removeItem(STORAGE_KEYS.promptDraft);
-    elements.promptInput.value = "";
+    if (CURRENT_PAGE === "browse" && isReloadNavigation()) {
+      clearPromptDraft();
+    }
+    elements.promptInput.value = getPromptDraft();
   }
   if (elements.contextInput) {
     elements.contextInput.value = localStorage.getItem(STORAGE_KEYS.contextDraft) || "";
@@ -3396,5 +3835,35 @@ async function initializeApp() {
   await refreshCatalog();
   maybeAutostartResponseFromSeed();
 }
+
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) {
+    return;
+  }
+  syncViewFromStorage();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") {
+    return;
+  }
+  syncViewFromStorage();
+});
+
+window.addEventListener("storage", (event) => {
+  const relevantKeys = new Set([
+    STORAGE_KEYS.selectedModels,
+    STORAGE_KEYS.selectedLibrary,
+    STORAGE_KEYS.selectedLibraryMode,
+    STORAGE_KEYS.selectedApp,
+    STORAGE_KEYS.selectedAppMode,
+    STORAGE_KEYS.selectedProfiles,
+    STORAGE_KEYS.selectedProfile,
+  ]);
+  if (!event.key || !relevantKeys.has(event.key)) {
+    return;
+  }
+  syncViewFromStorage();
+});
 
 initializeApp();

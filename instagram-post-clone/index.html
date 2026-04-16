@@ -16,14 +16,18 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260416i" />
   </head>
   <body data-page="browse">
     <main class="page-shell">
       <header class="hub-header brutal-header">
         <div class="brand-row">
           <a class="brand-mark" href="./index.html" aria-label="callLLM Browse">
-            <span class="brand-badge">cL</span>
+            <svg class="brand-badge" viewBox="0 0 32 32" aria-hidden="true">
+              <rect class="brand-badge-frame" x="1" y="1" width="30" height="30" rx="7" />
+              <path class="brand-badge-glyph" d="M8 24.5L14.4 7.5H17.6L24 24.5H19.9L16 14.2L12.1 24.5H8Z" />
+              <rect class="brand-badge-glyph" x="13.2" y="18.1" width="5.6" height="2.2" rx="1.1" />
+            </svg>
             <span class="brand-copy">
               <strong>callLLM Browse</strong>
               <span>model hub</span>
@@ -40,7 +44,10 @@
 
         <div class="header-controls">
           <div class="hub-search brutal-search" aria-hidden="true">
-            <span class="search-icon">/</span>
+            <svg class="search-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <rect class="search-icon-frame" x="1" y="1" width="16" height="16" rx="4" />
+              <path class="search-icon-glyph" d="M4.7 13.5L8.3 4.5H9.7L13.3 13.5H10.9L9 8.4L7.1 13.5H4.7Z" />
+            </svg>
             <span>Model hub</span>
           </div>
           <div class="theme-switcher" aria-label="테마 선택">
@@ -136,7 +143,7 @@
                 <p class="catalog-kicker">LLMs</p>
                 <h3>Models</h3>
               </div>
-              <span class="catalog-note">multi-select</span>
+              <span class="catalog-note">single select</span>
             </div>
             <div class="catalog-grid models-grid compact-grid" id="models-grid"></div>
           </section>
@@ -166,6 +173,6 @@
       </section>
     </main>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=20260416i"></script>
   </body>
 </html>
