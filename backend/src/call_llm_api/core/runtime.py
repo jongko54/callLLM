@@ -149,7 +149,12 @@ async def _seed_registry_defaults(container: AppContainer) -> None:
       description="Single-step baseline without retrieval or tool usage.",
       strategy_kind=AgentStrategyKind.DIRECT,
       framework=AgentFramework.CUSTOM,
-      generation_defaults={"temperature": 0.7},
+      system_prompt=(
+        "Answer the user's request directly and clearly. "
+        "Lead with the answer whenever possible. "
+        "Do not mention internal benchmark or workflow details unless the user asks."
+      ),
+      generation_defaults={"temperature": 0.5},
       metadata={
         "seeded": True,
         "runtime_status": framework_statuses[AgentFramework.CUSTOM],
@@ -164,7 +169,11 @@ async def _seed_registry_defaults(container: AppContainer) -> None:
       description="Injects case-provided context documents into the system prompt.",
       strategy_kind=AgentStrategyKind.RAG,
       framework=AgentFramework.CUSTOM,
-      system_prompt="Answer using the retrieved context when it is available.",
+      system_prompt=(
+        "Answer using the retrieved context when it is relevant. "
+        "If the context is insufficient, say what is missing instead of inventing details. "
+        "Prefer one grounded answer over multiple speculative alternatives."
+      ),
       retrieval_policy={"source": "case.metadata.context_documents"},
       generation_defaults={"temperature": 0.1},
       metadata={
@@ -266,7 +275,11 @@ async def _seed_registry_defaults(container: AppContainer) -> None:
       description="LlamaIndex prompt assembly with case-provided context documents.",
       strategy_kind=AgentStrategyKind.RAG,
       framework=AgentFramework.LLAMAINDEX,
-      system_prompt="Answer using the retrieved context when it is available.",
+      system_prompt=(
+        "Answer using the retrieved context when it is relevant. "
+        "If the context is insufficient, say what is missing instead of inventing details. "
+        "Prefer one grounded answer over multiple speculative alternatives."
+      ),
       retrieval_policy={"source": "case.metadata.context_documents"},
       generation_defaults={"temperature": 0.1},
       enabled=framework_statuses[AgentFramework.LLAMAINDEX]["available"],
@@ -285,10 +298,11 @@ async def _seed_registry_defaults(container: AppContainer) -> None:
       strategy_kind=AgentStrategyKind.DIRECT,
       framework=AgentFramework.CUSTOM,
       system_prompt=(
-        "Work like a planning agent. Break the request into a short execution plan, "
-        "state the key constraints, then answer clearly without pretending to have run tools."
+        "Work like a planning agent. Break the request into a short execution plan internally, "
+        "track the key constraints, then return a structured final answer without exposing chain-of-thought "
+        "or pretending to have run tools."
       ),
-      generation_defaults={"temperature": 0.4},
+      generation_defaults={"temperature": 0.3},
       metadata={
         "seeded": True,
         "runtime_status": framework_statuses[AgentFramework.CUSTOM],

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
   default_model: str = "qwen3-8b-int4"
   provider_tool_calling: bool = False
   request_timeout_seconds: float = 60.0
+  upstream_retry_attempts: int = 4
+  upstream_retry_initial_delay_seconds: float = 2.0
+  upstream_retry_backoff_multiplier: float = 1.6
   persistence_backend: str = "sqlalchemy"
   database_url: str = f"sqlite+aiosqlite:///{(PROJECT_ROOT / 'storage' / 'call_llm.db').as_posix()}"
   database_auto_create: bool = True

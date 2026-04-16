@@ -1232,6 +1232,82 @@ function getCaseDraft() {
   };
 }
 
+function buildWorkflowSystemPrompt({
+  model = getPrimarySelectedModel(),
+  profile = getSelectedProfiles()[0] || null,
+  responseMode = false,
+  includeExpectedSignal = false,
+} = {}) {
+  const app = getSelectedApp();
+  const workflowAnalysis = analyzeWorkflow();
+  const caseDraft = getCaseDraft();
+  const family = getModelFamily(model);
+  const instructions = [
+    "Answer the user's request directly.",
+    "Do not mention internal workflow nodes, routing, benchmark scoring, profiles, or evaluation unless the user explicitly asks.",
+    "Lead with the answer instead of a warm-up sentence whenever possible.",
+  ];
+
+  if (workflowAnalysis.usesPlanner) {
+    instructions.push("Do any planning silently and keep the visible answer focused on the final result.");
+    instructions.push("Compress the reasoning into the final answer instead of narrating your internal process.");
+  }
+
+  if (workflowAnalysis.usesRetrieval) {
+    instructions.push("Use the provided context when it is relevant to the answer.");
+    instructions.push("If the provided context is missing or insufficient, say what is missing instead of inventing details.");
+    instructions.push("Treat unsupported claims as uncertain rather than filling gaps from intuition.");
+  }
+
+  if (app?.id === "compare-studio") {
+    instructions.push("Give a clean baseline answer without self-critique or evaluation commentary.");
+  } else if (app?.id === "qwen-reasoning-desk") {
+    instructions.push("Decompose the task before answering, then return only the distilled final answer.");
+  } else if (app?.id === "gemma-grounded-lane") {
+    instructions.push("Filter the relevant evidence first, then synthesize one grounded answer.");
+  } else if (app?.id === "gemma-quick-lane") {
+    instructions.push("Answer directly without unnecessary setup, reflection, or filler.");
+  } else if (app?.id === "rag-lab") {
+    instructions.push("Keep grounded facts separate from uncertainty and avoid filling gaps with guesses.");
+  }
+
+  if (family === "qwen") {
+    instructions.push("Prefer a structured answer with short sections or numbered steps when it improves clarity.");
+    instructions.push("Separate assumptions, answer, and next action only when the task actually benefits from that structure.");
+    instructions.push("Favor precise technical wording over conversational filler.");
+  } else if (family === "gemma" && workflowAnalysis.usesRetrieval) {
+    instructions.push("Keep the wording grounded, stable, and close to the supplied evidence.");
+    instructions.push("Prefer one confident grounded answer over multiple speculative branches.");
+    instructions.push("Use short paragraphs or tight bullets instead of sprawling explanations.");
+  } else if (family === "gemma") {
+    instructions.push("Prefer concise, natural wording and get to the answer quickly.");
+    instructions.push("Keep the response compact unless the user explicitly asks for depth.");
+    instructions.push("Avoid meta commentary, repetition, and self-review language.");
+  }
+
+  if (profile?.id === "opencode-plan") {
+    instructions.push("Keep any hidden plan compact and do not expose chain-of-thought unless the user asks for it.");
+    instructions.push("When the task has multiple parts, return the answer in a deliberate stepwise structure.");
+  } else if (profile?.id === "direct-chat") {
+    instructions.push("Answer in the simplest complete form that satisfies the request.");
+  } else if (profile?.id === "rag-context") {
+    instructions.push("Distinguish clearly between supported facts and missing context.");
+  }
+
+  if (responseMode) {
+    instructions.push("This is a live user response, so optimize for helpfulness and final-answer quality.");
+    instructions.push("Do not sound like an evaluator, benchmark runner, or system trace.");
+  }
+
+  const expectedSignal = caseDraft.expected.trim();
+  const hasMeaningfulExpectedSignal = expectedSignal && expectedSignal !== API_CONFIG.defaultExpected;
+  if (responseMode && includeExpectedSignal && hasMeaningfulExpectedSignal) {
+    instructions.push(`If it fits naturally, make sure the answer covers this target signal: ${expectedSignal}`);
+  }
+
+  return `Follow these rules:\n- ${uniqueValues(instructions).join("\n- ")}`;
+}
+
 function getResponseModels() {
   const selectedReadyModels = getSelectedModels().filter(
     (model) => isModelReadyForChat(model)
@@ -2694,6 +2770,14 @@ function buildResponsePayload(activeModel, activeProfile) {
       grounding_mode: state.responseGroundingMode,
       selected_model_id: activeModel.id,
       selected_profile_id: activeProfile.id,
+      selected_app_id: state.selectedAppId,
+      selected_library_id: state.selectedLibraryId,
+      system_prompt: buildWorkflowSystemPrompt({
+        model: activeModel,
+        profile: activeProfile,
+        responseMode: true,
+        includeExpectedSignal: true,
+      }),
     },
   };
 }
@@ -3255,6 +3339,12 @@ function buildCaseMetadata() {
     selected_app_id: state.selectedAppId,
     selected_profile_id: selectedProfiles[0]?.id || null,
     selected_profile_ids: selectedProfiles.map((profile) => profile.id),
+    system_prompt: buildWorkflowSystemPrompt({
+      model: getPrimarySelectedModel(),
+      profile: selectedProfiles[0] || null,
+      responseMode: false,
+      includeExpectedSignal: false,
+    }),
     workflow_nodes: state.workflow.nodes.map((node) => ({
       kind: node.kind,
       title: node.title,

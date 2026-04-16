@@ -217,15 +217,20 @@ textarea:focus {
 }
 
 .brand-badge {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 32px;
   height: 32px;
-  border: 2px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel-yellow);
-  font-size: 0.8rem;
-  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.brand-badge-frame {
+  fill: var(--panel-yellow);
+  stroke: var(--line);
+  stroke-width: 2;
+}
+
+.brand-badge-glyph {
+  fill: var(--line);
 }
 
 .brand-copy {
@@ -284,15 +289,20 @@ textarea:focus {
 }
 
 .search-icon {
-  display: inline-grid;
-  place-items: center;
+  display: block;
   width: 18px;
   height: 18px;
-  border: 2px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-blue);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.56rem;
+  flex: 0 0 auto;
+}
+
+.search-icon-frame {
+  fill: var(--panel-blue);
+  stroke: var(--line);
+  stroke-width: 2;
+}
+
+.search-icon-glyph {
+  fill: var(--line);
 }
 
 .ghost-button,
@@ -870,6 +880,53 @@ body[data-page="response"] .page-shell {
   width: 100%;
   padding: 7px 8px;
   text-align: left;
+}
+
+.catalog-card {
+  position: relative;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.catalog-card[aria-pressed="false"] {
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--line) 68%, var(--panel) 32%);
+  box-shadow: 1px 1px 0 color-mix(in srgb, var(--line) 55%, transparent 45%);
+}
+
+.catalog-card[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--panel-blue) 86%, var(--panel) 14%);
+  border-color: var(--accent-dark);
+  box-shadow: 4px 4px 0 var(--accent-dark);
+  transform: translate(-1px, -1px);
+}
+
+.catalog-card[aria-pressed="true"]::after {
+  content: "selected";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 0 6px;
+  border: 2px solid var(--accent-dark);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.catalog-card:hover:not(.is-disabled):not([aria-pressed="true"]) {
+  transform: translate(-1px, -1px);
+  border-color: color-mix(in srgb, var(--line) 82%, var(--panel) 18%);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--line) 70%, transparent 30%);
 }
 
 .catalog-card h3 {

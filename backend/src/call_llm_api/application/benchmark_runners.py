@@ -583,6 +583,10 @@ def build_system_prompt(profile: AgentProfileRecord, case: BenchmarkCaseRecord) 
   if profile.system_prompt:
     sections.append(profile.system_prompt)
 
+  custom_system_prompt = str(case.metadata.get("system_prompt") or "").strip()
+  if custom_system_prompt:
+    sections.append(custom_system_prompt)
+
   if case.metadata.get("response_mode"):
     sections.append(RESPONSE_STYLE_PROMPT)
 

@@ -11,6 +11,16 @@ from call_llm_api.core.runtime import build_container, close_container
 from call_llm_api.domain.errors import BadRequestError, NotFoundError, ProviderRequestError, ToolExecutionError
 
 
+class NoCacheStaticFiles(StaticFiles):
+  async def get_response(self, path: str, scope):
+    response = await super().get_response(path, scope)
+    if response.status_code < 400:
+      response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+      response.headers["Pragma"] = "no-cache"
+      response.headers["Expires"] = "0"
+    return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
   app.state.container = await build_container(get_settings())
@@ -75,6 +85,6 @@ async def ui_index() -> FileResponse:
 
 app.mount(
   settings.frontend_mount_path,
-  StaticFiles(directory=settings.frontend_dir, html=True),
+  NoCacheStaticFiles(directory=settings.frontend_dir, html=True),
   name="frontend",
 )
