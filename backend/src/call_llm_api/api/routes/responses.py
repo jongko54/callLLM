@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from call_llm_api.api.deps import get_benchmark_service, get_response_service
-from call_llm_api.application.services.benchmark_service import BenchmarkService
+from call_llm_api.api.deps import get_profile_response_service, get_response_service
+from call_llm_api.application.services.profile_response_service import ProfileResponseService
 from call_llm_api.application.services.response_service import ResponseService
 from call_llm_api.domain.errors import BadRequestError, ProviderRequestError
 from call_llm_api.domain.models import AgentProfileRecord, ChatMessage, ModelRegistryRecord, RunRecord
@@ -87,7 +87,7 @@ async def create_response(
 @router.post("/profile-responses", response_model=ProfileResponseCreateResponse)
 async def create_profile_response(
   payload: ProfileResponseCreateRequest,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ProfileResponseService = Depends(get_profile_response_service),
 ) -> ProfileResponseCreateResponse:
   model, profile, result = await service.execute_profile_response(
     model_id=payload.model_id,
@@ -111,7 +111,7 @@ async def create_profile_response(
 @router.post("/profile-responses/stream", response_model=None)
 async def stream_profile_response(
   payload: ProfileResponseCreateRequest,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ProfileResponseService = Depends(get_profile_response_service),
 ) -> StreamingResponse:
   async def event_stream() -> AsyncIterator[str]:
     try:

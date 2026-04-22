@@ -3,8 +3,9 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from call_llm_api.api.deps import get_benchmark_service
-from call_llm_api.application.services.benchmark_service import BenchmarkService
+from call_llm_api.api.deps import get_agent_profile_service, get_model_registry_service
+from call_llm_api.application.services.agent_profile_service import AgentProfileService
+from call_llm_api.application.services.model_registry_service import ModelRegistryService
 from call_llm_api.domain.models import (
   AgentFramework,
   AgentProfileRecord,
@@ -45,7 +46,7 @@ class AgentProfileCreateRequest(BaseModel):
 
 @router.get("/registry/models", response_model=list[ModelRegistryRecord])
 async def list_registry_models(
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ModelRegistryService = Depends(get_model_registry_service),
 ) -> list[ModelRegistryRecord]:
   return await service.list_registry_models()
 
@@ -53,7 +54,7 @@ async def list_registry_models(
 @router.get("/registry/models/{model_id}", response_model=ModelRegistryRecord)
 async def get_registry_model(
   model_id: str,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ModelRegistryService = Depends(get_model_registry_service),
 ) -> ModelRegistryRecord:
   return await service.get_registry_model(model_id)
 
@@ -61,7 +62,7 @@ async def get_registry_model(
 @router.post("/registry/models", response_model=ModelRegistryRecord)
 async def create_registry_model(
   payload: ModelRegistryCreateRequest,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ModelRegistryService = Depends(get_model_registry_service),
 ) -> ModelRegistryRecord:
   return await service.register_model(
     name=payload.name,
@@ -81,14 +82,14 @@ async def create_registry_model(
 @router.post("/registry/models/{model_id}/probe", response_model=ModelRegistryRecord)
 async def probe_registry_model(
   model_id: str,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: ModelRegistryService = Depends(get_model_registry_service),
 ) -> ModelRegistryRecord:
   return await service.probe_model(model_id)
 
 
 @router.get("/agent-profiles", response_model=list[AgentProfileRecord])
 async def list_agent_profiles(
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: AgentProfileService = Depends(get_agent_profile_service),
 ) -> list[AgentProfileRecord]:
   return await service.list_agent_profiles()
 
@@ -96,7 +97,7 @@ async def list_agent_profiles(
 @router.get("/agent-profiles/{profile_id}", response_model=AgentProfileRecord)
 async def get_agent_profile(
   profile_id: str,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: AgentProfileService = Depends(get_agent_profile_service),
 ) -> AgentProfileRecord:
   return await service.get_agent_profile(profile_id)
 
@@ -104,7 +105,7 @@ async def get_agent_profile(
 @router.post("/agent-profiles", response_model=AgentProfileRecord)
 async def create_agent_profile(
   payload: AgentProfileCreateRequest,
-  service: BenchmarkService = Depends(get_benchmark_service),
+  service: AgentProfileService = Depends(get_agent_profile_service),
 ) -> AgentProfileRecord:
   return await service.create_agent_profile(
     name=payload.name,

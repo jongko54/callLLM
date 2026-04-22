@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>callLLM Response</title>
+    <title>callLLM Explain</title>
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://api.fontshare.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,7 +18,7 @@
     />
     <link rel="stylesheet" href="./styles.css?v=20260422c" />
   </head>
-  <body data-page="response">
+  <body data-page="explain">
     <main class="page-shell">
       <header class="hub-header brutal-header">
         <div class="brand-row">
@@ -29,17 +29,17 @@
               <rect class="brand-badge-glyph" x="13.2" y="18.1" width="5.6" height="2.2" rx="1.1" />
             </svg>
             <span class="brand-copy">
-              <strong>callLLM Response</strong>
-              <span>chat workspace</span>
+              <strong>callLLM Explain</strong>
+              <span>runtime map</span>
             </span>
           </a>
 
           <nav class="hub-nav brutal-nav" aria-label="메인 섹션">
             <a href="./index.html">Browse</a>
             <a href="./workflow.html">Workflow</a>
-            <a class="is-current" href="./response.html">Response</a>
+            <a href="./response.html">Response</a>
             <a href="./results.html">Results</a>
-            <a href="./explain.html">Explain</a>
+            <a class="is-current" href="./explain.html">Explain</a>
           </nav>
         </div>
 
@@ -49,68 +49,54 @@
               <rect class="search-icon-frame" x="1" y="1" width="16" height="16" rx="4" />
               <path class="search-icon-glyph" d="M4.7 13.5L8.3 4.5H9.7L13.3 13.5H10.9L9 8.4L7.1 13.5H4.7Z" />
             </svg>
-            <span>Response chat</span>
+            <span>Runtime explain</span>
           </div>
           <div class="theme-switcher" aria-label="테마 선택">
             <button class="theme-chip" type="button" data-action="select-theme" data-theme="red">Red</button>
             <button class="theme-chip" type="button" data-action="select-theme" data-theme="blue">Blue</button>
             <button class="theme-chip" type="button" data-action="select-theme" data-theme="yellow">Yellow</button>
           </div>
-          <button class="ghost-button" id="refresh-button" type="button">Refresh</button>
-          <a class="ghost-button inline-link-button" href="./index.html">Browse</a>
+          <a class="primary-button inline-link-button" href="./workflow.html">Workflow</a>
         </div>
       </header>
 
-      <section class="response-shell">
-        <aside class="surface-panel brutal-panel response-sidebar">
-          <div class="control-header">
-            <span class="section-kicker">Applied now</span>
-            <button class="ghost-button ghost-button-compact" id="response-clear-button" type="button">New chat</button>
-          </div>
-          <div class="response-summary-grid" id="response-summary-grid"></div>
+      <section class="explain-hero">
+        <div class="explain-hero-copy">
+          <p class="section-kicker">What runs where</p>
+          <h1>callLLM의 전략과 런타임 역할</h1>
+          <p>
+            Browse에서 고르는 모델, 라이브러리, 프로필은 최종적으로 하나의 요청 실행 경로를 정합니다.
+            이 화면은 각 선택지가 프롬프트를 어떻게 바꾸고, 어떤 실행기를 거치며, 결과에 어떤 차이를 만드는지 보여줍니다.
+          </p>
+        </div>
+        <div class="explain-flow" aria-label="callLLM 실행 흐름">
+          <article class="flow-node">Prompt</article>
+          <article class="flow-node">Profile</article>
+          <article class="flow-node">Runner</article>
+          <article class="flow-node">LLM</article>
+          <article class="flow-node">Trace</article>
+        </div>
+      </section>
 
+      <section class="explain-browser">
+        <aside class="surface-panel brutal-panel explain-catalog-panel">
           <div class="control-header">
-            <span class="section-kicker">History</span>
+            <span class="section-kicker">Components</span>
+            <span class="catalog-note">select one</span>
           </div>
-          <div class="response-conversation-list" id="response-conversation-list"></div>
-
-          <div class="control-header">
-            <span class="section-kicker">Mode</span>
-          </div>
-          <div class="response-mode-list" id="response-mode-list"></div>
-
-          <div class="control-header">
-            <span class="section-kicker">Profiles</span>
-          </div>
-          <div class="response-profile-list" id="response-profile-list"></div>
-
-          <div class="control-header">
-            <span class="section-kicker">Models</span>
-            <span class="response-status" id="status-text">ready</span>
-          </div>
-          <div class="response-model-list" id="response-model-list"></div>
+          <div class="explain-category-list" id="explain-category-list"></div>
+          <div class="explain-component-list" id="explain-component-list"></div>
         </aside>
 
-        <section class="response-chat-stage">
-          <section class="surface-panel brutal-panel response-thread-panel">
-            <div class="response-thread-header">
-              <div>
-                <p class="section-kicker">Response</p>
-                <h2>Chat</h2>
-              </div>
+        <section class="surface-panel brutal-panel explain-detail-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker" id="explain-detail-kicker">Detail</p>
+              <h2 id="explain-detail-title">Select a component</h2>
             </div>
-            <div class="response-thread" id="response-thread"></div>
-          </section>
-
-          <section class="surface-panel brutal-panel response-composer-panel">
-            <div class="response-composer-grid">
-              <label class="field">
-                <span>Message</span>
-                <textarea id="response-input" rows="4" placeholder="메시지를 입력하면 일반 LLM 채팅처럼 이어서 대화합니다."></textarea>
-              </label>
-              <button class="primary-button response-send-button" id="response-send-button" type="button">Send</button>
-            </div>
-          </section>
+            <div class="card-meta" id="explain-detail-badges"></div>
+          </div>
+          <div class="explain-detail-body" id="explain-detail"></div>
         </section>
       </section>
     </main>

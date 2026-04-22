@@ -12,7 +12,7 @@ const API_CONFIG = {
 
 const CURRENT_PAGE = (() => {
   const page = document.body?.dataset?.page;
-  if (page === "workflow" || page === "results" || page === "response") {
+  if (page === "workflow" || page === "results" || page === "response" || page === "explain") {
     return page;
   }
   return "browse";
@@ -39,6 +39,8 @@ const STORAGE_KEYS = {
   responseProfile: "callllm:response-profile:v1",
   responseGroundingMode: "callllm:response-grounding-mode:v1",
   responseSeed: "callllm:response-seed:v1",
+  explainCategory: "callllm:explain-category:v1",
+  explainComponent: "callllm:explain-component:v1",
   theme: "callllm:theme:v1",
 };
 
@@ -48,6 +50,412 @@ const RESPONSE_GROUNDING_MODES = [
   { id: "auto", name: "Auto" },
   { id: "grounded", name: "Grounded" },
 ];
+
+const EXPLAIN_CATEGORIES = [
+  { id: "strategy", name: "Strategies" },
+  { id: "library", name: "Libraries" },
+  { id: "service", name: "Services" },
+  { id: "runner", name: "Runners" },
+];
+
+const EXPLAIN_ITEMS = [
+  {
+    id: "direct-chat",
+    category: "strategy",
+    title: "Direct Chat",
+    subtitle: "문맥 검색이나 도구 없이 모델에 바로 요청하는 baseline",
+    badges: ["direct", "baseline", "single call"],
+    summary: "가장 단순한 실행 방식입니다. 사용자의 메시지와 선택된 system prompt를 OpenAI-compatible chat completion payload로 만들고 바로 모델에 보냅니다.",
+    logic: ["User message", "System prompt", "LLM call", "Final text"],
+    responsibilities: [
+      "모델별 기본 응답 품질과 말투를 빠르게 확인합니다.",
+      "RAG나 tool 실행을 붙이기 전 기준선을 잡습니다.",
+      "워크플로가 Prompt -> LLM 형태일 때 자동으로 direct 전략으로 해석됩니다.",
+    ],
+    whenToUse: "일반 답변, 요약, 문장 생성처럼 외부 근거나 함수 호출이 필요 없는 요청에 적합합니다.",
+    codePath: "ProfileResponseService -> CustomBenchmarkRunner -> OpenAI-compatible provider",
+  },
+  {
+    id: "rag-context",
+    category: "strategy",
+    title: "RAG Context",
+    subtitle: "질문과 참고 문맥을 함께 넣어 근거 중심 답변을 만드는 전략",
+    badges: ["rag", "grounded", "context"],
+    summary: "현재 구현은 벡터 검색 인덱스보다 사용자가 입력한 context documents를 system prompt에 안전하게 합치는 RAG lane에 가깝습니다.",
+    logic: ["Question", "Context docs", "Grounded prompt", "LLM answer"],
+    responsibilities: [
+      "프롬프트 옆 Context 입력값을 case metadata에 저장합니다.",
+      "runner가 context를 system prompt의 Grounded context 섹션으로 조립합니다.",
+      "모델이 모르는 내용을 추측하지 않고 부족한 근거를 말하도록 유도합니다.",
+    ],
+    whenToUse: "제품 스펙, 문서 조각, 내부 메모처럼 답변이 특정 근거에 묶여야 할 때 선택합니다.",
+    codePath: "buildCaseMetadata -> BenchmarkRunner.build_system_prompt -> profile rag-context",
+  },
+  {
+    id: "tool-agent",
+    category: "strategy",
+    title: "Tool Agent",
+    subtitle: "모델이 함수 호출을 선택하면 서버가 도구를 실행하는 multi-step 전략",
+    badges: ["tool", "agent", "multi-step"],
+    summary: "모델 응답에 tool_calls가 있으면 ToolRegistry가 해당 도구를 실행하고, tool 결과 메시지를 다시 모델에게 넣어 최종 답변을 받습니다.",
+    logic: ["Prompt", "Tool decision", "Tool execution", "Final answer"],
+    responsibilities: [
+      "모델이 직접 답할지 도구를 부를지 판단하게 합니다.",
+      "서버가 등록된 도구만 실행하고 결과를 tool message로 추가합니다.",
+      "max_steps 안에서 assistant/tool loop를 반복합니다.",
+    ],
+    whenToUse: "현재 시간 조회, 내부 API 호출, 계산, 외부 데이터 조회처럼 모델 혼자 답하면 안 되는 작업에 적합합니다.",
+    codePath: "AgentProfileService.ensure_model_supports_profile -> ToolRegistry -> CustomBenchmarkRunner._run_tool_strategy",
+  },
+  {
+    id: "custom-runtime",
+    category: "library",
+    title: "Custom Runtime",
+    subtitle: "callLLM 내부 구현으로 직접 provider payload를 만드는 기본 런타임",
+    badges: ["custom", "native", "fast path"],
+    summary: "프레임워크 의존성 없이 callLLM 코드가 직접 payload를 만들고 OpenAI-compatible endpoint를 호출합니다.",
+    logic: ["Profile", "Payload builder", "Provider client", "Trace"],
+    responsibilities: [
+      "direct, rag, tool 전략의 기본 실행 경로를 제공합니다.",
+      "벤치마크에서 외부 프레임워크 대비 기준 성능을 제공합니다.",
+      "프레임워크 설치가 없어도 항상 동작하는 fallback 역할을 합니다.",
+    ],
+    whenToUse: "가장 예측 가능한 로컬 실행 경로가 필요하거나 프레임워크별 overhead를 비교하고 싶을 때 씁니다.",
+    codePath: "CustomBenchmarkRunner in application/benchmark_runners.py",
+  },
+  {
+    id: "langchain-runtime",
+    category: "library",
+    title: "LangChain",
+    subtitle: "모델 호출과 tool binding을 표준 인터페이스로 감싸는 실행 레이어",
+    badges: ["langchain", "adapter", "tools"],
+    summary: "LangChain ChatOpenAI를 사용해 같은 profile을 LangChain 방식으로 실행합니다. custom runner와 결과/trace를 비교하기 위한 adapter 역할도 합니다.",
+    logic: ["Messages", "ChatOpenAI", "Optional tools", "AI message"],
+    responsibilities: [
+      "모델 제공자 교체 시 호출 코드를 표준화합니다.",
+      "LangChain tool 실행 패턴을 benchmark 안에서 비교합니다.",
+      "프레임워크 의존성이 없으면 profile이 비활성화됩니다.",
+    ],
+    whenToUse: "LangChain 기반 앱으로 옮길 계획이 있거나 LangChain runner의 tool 처리 방식을 검증할 때 선택합니다.",
+    codePath: "LangChainBenchmarkRunner",
+  },
+  {
+    id: "langgraph-runtime",
+    category: "library",
+    title: "LangGraph",
+    subtitle: "에이전트 흐름을 상태 머신처럼 구성하는 런타임",
+    badges: ["langgraph", "state graph", "agent"],
+    summary: "계획, 도구 실행, 모델 재호출, 종료 조건을 그래프 흐름으로 표현하는 데 적합한 런타임입니다.",
+    logic: ["State", "Graph node", "Tool branch", "Stop condition"],
+    responsibilities: [
+      "복잡한 multi-step agent를 명시적인 노드와 엣지로 관리합니다.",
+      "tool agent 흐름을 더 통제 가능한 구조로 비교합니다.",
+      "장기적으로 retry, approval, checkpoint 같은 제어 지점을 넣기 좋습니다.",
+    ],
+    whenToUse: "도구 호출이 여러 번 오가거나 상태 기반 분기가 필요한 agent 실험에 적합합니다.",
+    codePath: "LangGraphBenchmarkRunner",
+  },
+  {
+    id: "llamaindex-runtime",
+    category: "library",
+    title: "LlamaIndex",
+    subtitle: "문서 기반 질의응답과 RAG 구성을 다루는 데이터 중심 레이어",
+    badges: ["llamaindex", "rag", "docs"],
+    summary: "문서, 노트, context를 답변 입력으로 조립하는 데 강한 런타임입니다. 현재는 OpenAI-compatible endpoint에 붙는 baseline runner로 사용합니다.",
+    logic: ["Prompt", "Context text", "OpenAILike", "Completion"],
+    responsibilities: [
+      "RAG profile과 함께 문맥 주입 방식의 차이를 비교합니다.",
+      "문서 중심 앱으로 확장할 때 자연스러운 실행 경로를 제공합니다.",
+      "context 부족 시 추측을 줄이는 프롬프트 조립에 사용됩니다.",
+    ],
+    whenToUse: "문서/지식 기반 응답 실험이나 RAG 품질 비교가 주 관심사일 때 선택합니다.",
+    codePath: "LlamaIndexBenchmarkRunner",
+  },
+  {
+    id: "model-registry-service",
+    category: "service",
+    title: "ModelRegistryService",
+    subtitle: "모델 등록 정보, base URL, capability, health probe를 담당",
+    badges: ["service", "models", "capability"],
+    summary: "실행 가능한 모델 목록을 제공하고, profile 실행 전에 모델이 chat/tool 기능을 지원하는지 판단할 데이터를 제공합니다.",
+    logic: ["Model record", "Capabilities", "Probe", "Client config"],
+    responsibilities: [
+      "모델 이름, provider, served model name, base URL을 저장합니다.",
+      "모델 health와 upstream model 목록을 probe합니다.",
+      "모델별 OpenAI-compatible client 설정을 만들 수 있게 데이터를 제공합니다.",
+    ],
+    whenToUse: "새 모델을 등록하거나 특정 endpoint가 tool calling을 지원하는지 확인해야 할 때 관여합니다.",
+    codePath: "application/services/model_registry_service.py",
+  },
+  {
+    id: "agent-profile-service",
+    category: "service",
+    title: "AgentProfileService",
+    subtitle: "전략, 프레임워크, system prompt, tool 요구사항을 관리",
+    badges: ["service", "profiles", "validation"],
+    summary: "Direct/RAG/Tool 같은 profile을 만들고, 선택한 모델이 해당 profile을 실행할 수 있는지 검증합니다.",
+    logic: ["Profile", "Strategy", "Framework", "Validation"],
+    responsibilities: [
+      "profile의 strategy_kind와 framework를 저장합니다.",
+      "tool profile이 tool_calling 미지원 모델에서 실행되지 않도록 막습니다.",
+      "Browse와 Response 화면에서 선택 가능한 profile 목록의 기반이 됩니다.",
+    ],
+    whenToUse: "새 agent 전략을 추가하거나 모델 capability에 따라 profile을 걸러야 할 때 중심이 됩니다.",
+    codePath: "application/services/agent_profile_service.py",
+  },
+  {
+    id: "profile-response-service",
+    category: "service",
+    title: "ProfileResponseService",
+    subtitle: "Response 화면의 profile 기반 응답 실행과 streaming을 담당",
+    badges: ["service", "response", "stream"],
+    summary: "선택된 model_id와 profile_id로 즉시 답변을 실행합니다. grounding override, streaming fallback, runner 호출을 이 서비스에서 묶습니다.",
+    logic: ["Resolve model", "Resolve profile", "Build case", "Stream response"],
+    responsibilities: [
+      "Response 페이지의 profile-responses API를 처리합니다.",
+      "response-page source일 때 위치 grounding이나 identity override를 적용합니다.",
+      "custom direct profile은 streaming하고, 불가능한 profile은 JSON 응답으로 fallback합니다.",
+    ],
+    whenToUse: "사용자와 실시간 채팅하는 화면에서 선택 profile을 그대로 적용해야 할 때 사용됩니다.",
+    codePath: "application/services/profile_response_service.py",
+  },
+  {
+    id: "benchmark-service",
+    category: "service",
+    title: "BenchmarkService",
+    subtitle: "suite, case, run, result, history 집계를 담당",
+    badges: ["service", "benchmark", "history"],
+    summary: "비교 실행 자체보다 벤치마크 도메인 데이터를 만들고 저장하고 집계하는 역할에 집중합니다.",
+    logic: ["Suite", "Case", "Run", "Result history"],
+    responsibilities: [
+      "benchmark suite와 case를 생성합니다.",
+      "모델과 profile 조합별 run을 실행하고 result를 저장합니다.",
+      "latency, pass rate, trace preview를 Results 화면에서 볼 수 있게 집계합니다.",
+    ],
+    whenToUse: "여러 모델/프로필 조합을 같은 prompt로 비교하고 결과 이력을 남길 때 중심이 됩니다.",
+    codePath: "application/services/benchmark_service.py",
+  },
+  {
+    id: "benchmark-runner",
+    category: "runner",
+    title: "BenchmarkRunner",
+    subtitle: "framework별 실제 호출 방식을 캡슐화하는 실행기",
+    badges: ["runner", "framework", "trace"],
+    summary: "Custom, LangChain, LangGraph, LlamaIndex별 실행 차이를 BenchmarkRunner 인터페이스 아래로 숨깁니다.",
+    logic: ["Runner context", "Framework call", "Raw output", "Trace"],
+    responsibilities: [
+      "profile.framework 값에 맞는 runner를 선택합니다.",
+      "프레임워크별 request preview와 trace를 남깁니다.",
+      "output_text, raw_output, usage를 공통 결과 형식으로 돌려줍니다.",
+    ],
+    whenToUse: "새 프레임워크를 붙이거나 같은 prompt를 여러 runtime에서 비교하고 싶을 때 확장 지점입니다.",
+    codePath: "application/benchmark_runners.py",
+  },
+];
+
+const EXPLAIN_DETAILS = {
+  "direct-chat": {
+    mechanics: [
+      "선택한 profile의 system_prompt와 사용자의 메시지를 순서대로 provider messages에 넣습니다.",
+      "retriever, context filter, tool loop 같은 중간 단계가 없어서 latency와 출력 품질을 가장 순수하게 비교할 수 있습니다.",
+      "Benchmark에서는 case.input_messages를 그대로 사용하고, Response에서는 현재 대화 이력을 user/assistant 메시지로 이어 붙입니다.",
+    ],
+    requestEffects: [
+      "payload에는 model, messages, temperature, max_tokens 같은 기본 필드만 들어갑니다.",
+      "context_documents가 있어도 direct profile에서는 일반적으로 grounded context로 강하게 묶이지 않습니다.",
+      "trace에는 request.built와 assistant.message 정도만 남기 때문에 디버깅이 단순합니다.",
+    ],
+    watchOut: [
+      "모델이 모르는 사실도 그럴듯하게 답할 수 있으므로 사실 검증이 중요한 질문에는 RAG가 더 적합합니다.",
+      "도구 호출이 필요한 질문을 direct로 보내면 모델이 실제 조회 없이 추측할 가능성이 있습니다.",
+    ],
+  },
+  "rag-context": {
+    mechanics: [
+      "Browse의 Context 입력값은 줄 단위로 정리되어 context_documents에 저장됩니다.",
+      "runner가 profile.system_prompt, response mode prompt, context_documents를 하나의 system prompt로 조립합니다.",
+      "질문은 user message로 유지하고, 근거 문서는 system 영역에 넣어서 모델이 답변 전에 참고하도록 만듭니다.",
+    ],
+    requestEffects: [
+      "request preview의 첫 system message에 Grounded context 섹션이 생깁니다.",
+      "context가 많아질수록 prompt token이 증가하고 latency가 늘 수 있습니다.",
+      "Results 화면에서는 context notes와 request preview를 통해 어떤 근거가 실제 요청에 들어갔는지 확인할 수 있습니다.",
+    ],
+    watchOut: [
+      "현재는 벡터 검색으로 문서를 찾아오는 완전한 검색형 RAG가 아니라, 입력된 문맥을 주입하는 방식입니다.",
+      "잘못된 context를 넣으면 모델은 그 잘못된 근거를 우선할 수 있습니다.",
+      "문맥이 길면 핵심 근거만 남기고 압축하는 편이 더 안정적입니다.",
+    ],
+  },
+  "tool-agent": {
+    mechanics: [
+      "모델 호출 payload에 tools와 tool_choice:auto를 붙여 모델이 함수 호출을 선택할 수 있게 합니다.",
+      "assistant message에 tool_calls가 있으면 ToolRegistry가 이름과 JSON arguments를 검증한 뒤 도구를 실행합니다.",
+      "도구 결과는 role:tool 메시지로 대화에 추가되고, 모델을 다시 호출해서 최종 답변을 받습니다.",
+    ],
+    requestEffects: [
+      "한 번의 사용자 요청이 여러 provider calls로 이어질 수 있습니다.",
+      "trace에는 assistant.message, tool.completed, 다음 request.built가 순서대로 쌓입니다.",
+      "max_steps에 도달할 때까지 최종 답변이 없으면 실패 처리됩니다.",
+    ],
+    watchOut: [
+      "upstream 모델 서버가 tool calling을 지원하지 않으면 실행 전에 차단하거나 provider 오류가 납니다.",
+      "도구 arguments가 JSON으로 파싱되지 않으면 ToolExecutionError가 발생합니다.",
+      "외부 도구를 추가할 때는 권한, 입력 검증, 실행 시간 제한을 같이 설계해야 합니다.",
+    ],
+  },
+  "custom-runtime": {
+    mechanics: [
+      "callLLM 코드가 직접 OpenAI-compatible payload를 만들고 http client로 upstream에 보냅니다.",
+      "프레임워크 adapter 없이 동작해서 가장 예측 가능한 기준 실행 경로입니다.",
+      "direct, rag, tool 전략의 공통 baseline runner로 쓰입니다.",
+    ],
+    requestEffects: [
+      "payload shape와 trace format이 callLLM 내부 코드에 의해 고정됩니다.",
+      "extra_body, temperature, max_steps 같은 generation params가 model/profile/run 순서로 병합됩니다.",
+      "framework 의존성이 없어 runtime_status와 관계없이 활성화할 수 있습니다.",
+    ],
+    watchOut: [
+      "LangChain이나 LlamaIndex 생태계 기능을 자동으로 얻지는 못합니다.",
+      "복잡한 agent orchestration은 직접 구현해야 하므로 LangGraph보다 확장 비용이 커질 수 있습니다.",
+    ],
+  },
+  "langchain-runtime": {
+    mechanics: [
+      "LangChain ChatOpenAI 객체를 OpenAI-compatible endpoint에 연결합니다.",
+      "profile이 tool 전략이면 LangChain tool binding 방식으로 도구 호출 흐름을 구성합니다.",
+      "LangChain 응답 객체를 callLLM 공통 BenchmarkRunnerResult 형식으로 변환합니다.",
+    ],
+    requestEffects: [
+      "raw_output에는 LangChain message, usage, response_metadata가 들어갈 수 있습니다.",
+      "request preview는 LangChain 호출 전 만들어진 messages와 모델 설정을 보여줍니다.",
+      "optional dependency가 없으면 해당 profile은 seeded 상태여도 enabled=false가 됩니다.",
+    ],
+    watchOut: [
+      "custom runtime과 완전히 같은 payload를 보내지 않을 수 있어 결과 차이가 생길 수 있습니다.",
+      "LangChain 버전 변화에 따라 tool call 표현이나 usage metadata가 달라질 수 있습니다.",
+      "단순 direct 호출만 비교한다면 custom runtime보다 얻는 이점은 주로 adapter 호환성입니다.",
+    ],
+  },
+  "langgraph-runtime": {
+    mechanics: [
+      "프롬프트, 모델 호출, 도구 실행, 종료 조건을 그래프의 상태 전이로 표현하는 방식입니다.",
+      "각 노드는 현재 상태를 읽고 다음 상태를 반환하며, 엣지가 다음 실행 경로를 결정합니다.",
+      "tool agent처럼 반복이 필요한 흐름을 명시적인 구조로 관리하기 좋습니다.",
+    ],
+    requestEffects: [
+      "trace는 단일 호출보다 agent 단계 중심으로 읽는 것이 중요합니다.",
+      "상태가 커질수록 어떤 메시지가 다음 노드로 전달되는지 확인해야 합니다.",
+      "future extension으로 checkpoint, human approval, retry branch를 넣기 쉽습니다.",
+    ],
+    watchOut: [
+      "간단한 direct 답변에는 구조가 과할 수 있습니다.",
+      "그래프 종료 조건이 부정확하면 불필요한 반복이나 max_steps 실패가 생길 수 있습니다.",
+      "디버깅할 때는 최종 답변뿐 아니라 노드별 state 변화를 같이 봐야 합니다.",
+    ],
+  },
+  "llamaindex-runtime": {
+    mechanics: [
+      "LlamaIndex의 OpenAILike 연결을 통해 등록된 OpenAI-compatible endpoint를 호출합니다.",
+      "RAG 성격의 profile에서는 context documents를 prompt에 녹여 문서 기반 답변처럼 실행합니다.",
+      "completion 결과를 callLLM 공통 output_text/raw_output/trace 구조로 변환합니다.",
+    ],
+    requestEffects: [
+      "prompt 기반 request preview가 남아 실제로 어떤 문맥이 들어갔는지 확인할 수 있습니다.",
+      "문서 중심 앱으로 확장하면 index, retriever, node parser 같은 LlamaIndex 구성 요소를 붙일 수 있습니다.",
+      "현재 구현은 완전한 index query engine보다 baseline OpenAILike runner에 가깝습니다.",
+    ],
+    watchOut: [
+      "진짜 검색형 RAG를 원하면 문서 ingest와 index 저장소 설계가 추가로 필요합니다.",
+      "문맥 조립 방식이 custom RAG와 다를 수 있어 비교 시 prompt preview를 확인해야 합니다.",
+    ],
+  },
+  "model-registry-service": {
+    mechanics: [
+      "모델 record는 UI에서 선택 가능한 model card의 원천 데이터입니다.",
+      "base_url, served_model_name, api_key, capabilities를 저장해서 실행 시 provider client 설정에 사용합니다.",
+      "probe_model은 upstream /v1/models를 호출해 served model이 실제로 노출되는지 확인합니다.",
+    ],
+    requestEffects: [
+      "capabilities.chat_completions가 false이면 Response와 Benchmark 후보에서 제외됩니다.",
+      "capabilities.tool_calling이 true가 아니면 tool profile 실행이 차단됩니다.",
+      "default_params는 profile generation_defaults와 run params보다 낮은 우선순위로 병합됩니다.",
+    ],
+    watchOut: [
+      "served_model_name은 UI 표시 이름이 아니라 upstream에 실제 전달되는 model 값입니다.",
+      "등록된 base_url이 잘못되면 해당 모델을 선택한 모든 profile 실행이 실패합니다.",
+      "api_key는 model_dump에서 제외되지만 저장소 보안은 별도로 고려해야 합니다.",
+    ],
+  },
+  "agent-profile-service": {
+    mechanics: [
+      "profile은 전략(strategy_kind), 프레임워크(framework), system prompt, tool_names, generation_defaults를 묶은 실행 preset입니다.",
+      "UI는 선택한 library와 app strategy에 맞는 profile만 필터링해서 보여줍니다.",
+      "ensure_model_supports_profile은 tool 요구 profile이 tool 미지원 모델에서 실행되지 않게 막습니다.",
+    ],
+    requestEffects: [
+      "profile.framework 값이 runner 선택의 기준이 됩니다.",
+      "profile.strategy_kind는 direct/rag/tool 중 어떤 실행 로직을 탈지 결정합니다.",
+      "profile.metadata.library_ids가 있으면 특정 library 카드에 profile을 묶을 수 있습니다.",
+    ],
+    watchOut: [
+      "tool_names가 비어 있지 않으면 strategy_kind가 direct여도 tool calling 요구 profile로 판단됩니다.",
+      "profile.enabled=false이면 UI에서 실행 후보로 보이지 않습니다.",
+      "system_prompt가 너무 강하면 앱별 workflow prompt보다 우선적으로 모델 행동을 지배할 수 있습니다.",
+    ],
+  },
+  "profile-response-service": {
+    mechanics: [
+      "Response 페이지에서 model_id와 profile_id를 받아 해당 모델과 profile을 먼저 resolve합니다.",
+      "response-page source일 때 identity 질문이나 위치 질문은 grounding override로 빠르게 처리할 수 있습니다.",
+      "stream 가능한 custom direct profile은 SSE로 delta를 보내고, 불가능하면 JSON 응답으로 fallback합니다.",
+    ],
+    requestEffects: [
+      "metadata.source, grounding_mode, selected_app_id, selected_library_id가 응답 로직에 영향을 줍니다.",
+      "context_documents는 response mode에서 grounded context로 들어가 live chat 답변에 반영됩니다.",
+      "stream 응답은 run.started, message.delta, run.completed 이벤트로 UI에 전달됩니다.",
+    ],
+    watchOut: [
+      "tool profile streaming은 아직 지원하지 않아 일반 profile response 호출로 fallback합니다.",
+      "grounding_mode=raw이면 위치 grounding override를 건너뜁니다.",
+      "Response 화면은 사용자 대화 품질을 우선하므로 benchmark scoring과는 목적이 다릅니다.",
+    ],
+  },
+  "benchmark-service": {
+    mechanics: [
+      "suite는 하나의 비교 실험 묶음이고, case는 그 안의 prompt/context/expected check입니다.",
+      "run은 특정 model/profile 조합의 실행 단위이며, result는 case별 출력, latency, score, trace입니다.",
+      "execute_benchmark_run은 enabled case들을 순회하며 runner를 호출하고 summary를 갱신합니다.",
+    ],
+    requestEffects: [
+      "Results 화면은 benchmark-history API에서 suite, cases, runs, results snapshot을 받아 구성됩니다.",
+      "contains expected나 keywords가 있으면 간단한 pass/fail score가 기록됩니다.",
+      "runner.exception이나 provider 오류도 result로 저장되어 비교 행렬에서 실패 케이스로 보입니다.",
+    ],
+    watchOut: [
+      "현재 scoring은 간단한 문자열 기반 점검이라 품질 평가 전체를 대표하지는 않습니다.",
+      "여러 모델/프로필 조합을 실행하면 upstream 비용과 시간이 조합 수만큼 늘어납니다.",
+      "벤치마크 실행 중 생성되는 trace에는 요청 preview가 포함되므로 민감한 prompt/context를 주의해야 합니다.",
+    ],
+  },
+  "benchmark-runner": {
+    mechanics: [
+      "BenchmarkRunnerRegistry가 profile.framework 값을 보고 custom/langchain/langgraph/llamaindex runner를 선택합니다.",
+      "각 runner는 자기 방식으로 모델을 호출하지만 결과는 BenchmarkRunnerResult로 통일합니다.",
+      "trace에는 request.built, assistant.message, tool.completed 같은 실행 이벤트를 남깁니다.",
+    ],
+    requestEffects: [
+      "새 프레임워크를 추가해도 BenchmarkService는 runner interface만 알면 됩니다.",
+      "동일 prompt라도 runner가 조립하는 message format이 다르면 결과가 달라질 수 있습니다.",
+      "Results의 request preview는 runner별 차이를 확인하는 가장 중요한 디버깅 정보입니다.",
+    ],
+    watchOut: [
+      "framework dependency가 설치되지 않으면 runner가 실행 실패를 반환하거나 profile이 비활성화됩니다.",
+      "runner별 raw_output 구조가 다르므로 UI에서는 공통 필드와 debug JSON을 함께 보여줍니다.",
+      "프레임워크 비교를 할 때는 prompt, model, temperature, context를 최대한 동일하게 맞춰야 합니다.",
+    ],
+  },
+};
 
 const SELECTION_MODES = {
   auto: "auto",
@@ -322,6 +730,12 @@ const elements = {
   responseInput: document.querySelector("#response-input"),
   responseSendButton: document.querySelector("#response-send-button"),
   responseClearButton: document.querySelector("#response-clear-button"),
+  explainCategoryList: document.querySelector("#explain-category-list"),
+  explainComponentList: document.querySelector("#explain-component-list"),
+  explainDetail: document.querySelector("#explain-detail"),
+  explainDetailKicker: document.querySelector("#explain-detail-kicker"),
+  explainDetailTitle: document.querySelector("#explain-detail-title"),
+  explainDetailBadges: document.querySelector("#explain-detail-badges"),
 };
 
 const state = {
@@ -364,6 +778,8 @@ const state = {
   selectedResponseProfileId: localStorage.getItem(STORAGE_KEYS.responseProfile) || "",
   responseGroundingMode: normalizeResponseGroundingMode(localStorage.getItem(STORAGE_KEYS.responseGroundingMode) || ""),
   activeResponse: false,
+  selectedExplainCategory: localStorage.getItem(STORAGE_KEYS.explainCategory) || EXPLAIN_CATEGORIES[0].id,
+  selectedExplainId: localStorage.getItem(STORAGE_KEYS.explainComponent) || EXPLAIN_ITEMS[0].id,
   theme: normalizeTheme(localStorage.getItem(STORAGE_KEYS.theme)),
 };
 
@@ -2017,6 +2433,138 @@ function renderResponseThread() {
   elements.responseThread.scrollTop = elements.responseThread.scrollHeight;
 }
 
+function getSelectedExplainCategory() {
+  return EXPLAIN_CATEGORIES.find((category) => category.id === state.selectedExplainCategory) || EXPLAIN_CATEGORIES[0];
+}
+
+function getExplainItemsForSelectedCategory() {
+  const selectedCategory = getSelectedExplainCategory();
+  return EXPLAIN_ITEMS.filter((item) => item.category === selectedCategory.id);
+}
+
+function getSelectedExplainItem() {
+  const scopedItems = getExplainItemsForSelectedCategory();
+  return scopedItems.find((item) => item.id === state.selectedExplainId)
+    || scopedItems[0]
+    || EXPLAIN_ITEMS[0];
+}
+
+function persistExplainSelection() {
+  localStorage.setItem(STORAGE_KEYS.explainCategory, state.selectedExplainCategory);
+  localStorage.setItem(STORAGE_KEYS.explainComponent, state.selectedExplainId);
+}
+
+function renderExplain() {
+  if (!elements.explainCategoryList || !elements.explainComponentList || !elements.explainDetail) {
+    return;
+  }
+
+  const selectedCategory = getSelectedExplainCategory();
+  const scopedItems = getExplainItemsForSelectedCategory();
+  if (!scopedItems.some((item) => item.id === state.selectedExplainId)) {
+    state.selectedExplainId = scopedItems[0]?.id || EXPLAIN_ITEMS[0]?.id || "";
+  }
+  const selectedItem = getSelectedExplainItem();
+  persistExplainSelection();
+
+  elements.explainCategoryList.innerHTML = EXPLAIN_CATEGORIES.map((category) => {
+    const isSelected = category.id === selectedCategory.id;
+    const count = EXPLAIN_ITEMS.filter((item) => item.category === category.id).length;
+    return `
+      <button
+        class="explain-category-chip ${isSelected ? "is-selected" : ""}"
+        type="button"
+        data-action="select-explain-category"
+        data-explain-category="${category.id}"
+        aria-pressed="${isSelected ? "true" : "false"}"
+      >
+        <span>${escapeHtml(category.name)}</span>
+        <strong>${count}</strong>
+      </button>
+    `;
+  }).join("");
+
+  elements.explainComponentList.innerHTML = scopedItems.map((item) => {
+    const isSelected = item.id === selectedItem.id;
+    return `
+      <button
+        class="explain-component-card ${isSelected ? "is-selected" : ""}"
+        type="button"
+        data-action="select-explain-component"
+        data-explain-id="${item.id}"
+        aria-pressed="${isSelected ? "true" : "false"}"
+      >
+        <span class="card-kicker">${escapeHtml(selectedCategory.name)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <span>${escapeHtml(item.subtitle)}</span>
+      </button>
+    `;
+  }).join("");
+
+  if (elements.explainDetailKicker) {
+    elements.explainDetailKicker.textContent = selectedCategory.name;
+  }
+  if (elements.explainDetailTitle) {
+    elements.explainDetailTitle.textContent = selectedItem.title;
+  }
+  if (elements.explainDetailBadges) {
+    elements.explainDetailBadges.innerHTML = (selectedItem.badges || [])
+      .map((badge, index) => `<span class="meta-pill ${index === 0 ? "is-accent" : ""}">${escapeHtml(badge)}</span>`)
+      .join("");
+  }
+
+  const responsibilityItems = (selectedItem.responsibilities || [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+  const logicItems = (selectedItem.logic || [])
+    .map((item) => `<span>${escapeHtml(item)}</span>`)
+    .join("");
+  const detail = EXPLAIN_DETAILS[selectedItem.id] || {};
+  const buildDetailList = (items) => {
+    return (items || [])
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join("");
+  };
+
+  elements.explainDetail.innerHTML = `
+    <article class="explain-detail-summary">
+      <p>${escapeHtml(selectedItem.summary)}</p>
+      <div class="logic-strip explain-detail-logic">${logicItems}</div>
+    </article>
+
+    <section class="explain-detail-grid">
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">Role</span>
+        <ul class="explain-bullet-list">${responsibilityItems}</ul>
+      </article>
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">When to choose</span>
+        <div class="detail-copy">${escapeHtml(selectedItem.whenToUse)}</div>
+      </article>
+    </section>
+
+    <article class="history-detail-section explain-detail-section">
+      <span class="metric-label">Code path</span>
+      <div class="debug-pre explain-code-path">${escapeHtml(selectedItem.codePath)}</div>
+    </article>
+
+    <section class="explain-deep-grid">
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">How it works</span>
+        <ul class="explain-bullet-list">${buildDetailList(detail.mechanics)}</ul>
+      </article>
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">Request and result impact</span>
+        <ul class="explain-bullet-list">${buildDetailList(detail.requestEffects)}</ul>
+      </article>
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">Watch out</span>
+        <ul class="explain-bullet-list">${buildDetailList(detail.watchOut)}</ul>
+      </article>
+    </section>
+  `;
+}
+
 function renderProfiles() {
   if (!elements.profileList) {
     return;
@@ -2468,6 +3016,7 @@ function renderAll() {
   renderResponseSummary();
   renderResponseConversationList();
   renderResponseThread();
+  renderExplain();
   renderCanvas();
   renderRunSummary();
   renderHistoryDetail();
@@ -3822,6 +4371,27 @@ function attachEventListeners() {
     }
   });
 
+  elements.explainCategoryList?.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-action='select-explain-category']");
+    if (!target) {
+      return;
+    }
+    state.selectedExplainCategory = target.dataset.explainCategory || EXPLAIN_CATEGORIES[0].id;
+    state.selectedExplainId = EXPLAIN_ITEMS.find((item) => item.category === state.selectedExplainCategory)?.id || EXPLAIN_ITEMS[0].id;
+    persistExplainSelection();
+    renderAll();
+  });
+
+  elements.explainComponentList?.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-action='select-explain-component']");
+    if (!target) {
+      return;
+    }
+    state.selectedExplainId = target.dataset.explainId || state.selectedExplainId;
+    persistExplainSelection();
+    renderAll();
+  });
+
   elements.historyDetail?.addEventListener("click", (event) => {
     const target = event.target.closest("[data-action='select-history-run']");
     if (!target) {
@@ -3913,6 +4483,10 @@ async function initializeApp() {
   syncResponseSessions();
   attachEventListeners();
   renderAll();
+
+  if (CURRENT_PAGE === "explain") {
+    return;
+  }
 
   const connected = await resolveConnection();
   if (!connected) {

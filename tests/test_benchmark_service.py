@@ -1,7 +1,10 @@
 import asyncio
 
 from call_llm_api.application.benchmark_runners import BenchmarkRunner, BenchmarkRunnerRegistry
+from call_llm_api.application.services.agent_profile_service import AgentProfileService
 from call_llm_api.application.services.benchmark_service import BenchmarkService
+from call_llm_api.application.services.model_registry_service import ModelRegistryService
+from call_llm_api.application.services.profile_response_service import ProfileResponseService
 from call_llm_api.core.config import Settings
 from call_llm_api.domain.errors import BadRequestError
 from call_llm_api.domain.models import ChatMessage
@@ -105,31 +108,60 @@ class StubBenchmarkLLMClient:
     return None
 
 
-class BenchmarkServiceHarness(BenchmarkService):
+class BenchmarkServiceHarness:
   def __init__(
     self,
     stub_client: StubBenchmarkLLMClient,
     runner_registry: BenchmarkRunnerRegistry | None = None,
     location_grounder: LocationGrounder | None = None,
   ) -> None:
-    super().__init__(
-      model_registry_repository=InMemoryModelRegistryRepository(),
-      agent_profile_repository=InMemoryAgentProfileRepository(),
+    settings = Settings(
+      provider_base_url="http://127.0.0.1:18001",
+      provider_api_key="test-token",
+    )
+    client_factory = lambda model: stub_client
+    tool_registry = build_builtin_tool_registry()
+    model_registry_repository = InMemoryModelRegistryRepository()
+    agent_profile_repository = InMemoryAgentProfileRepository()
+
+    self.model_registry_service = ModelRegistryService(
+      model_registry_repository=model_registry_repository,
+      settings=settings,
+      client_factory=client_factory,
+    )
+    self.agent_profile_service = AgentProfileService(
+      agent_profile_repository=agent_profile_repository,
+    )
+    self.benchmark_service = BenchmarkService(
+      model_registry_service=self.model_registry_service,
+      agent_profile_service=self.agent_profile_service,
       benchmark_suite_repository=InMemoryBenchmarkSuiteRepository(),
       benchmark_run_repository=InMemoryBenchmarkRunRepository(),
-      tool_registry=build_builtin_tool_registry(),
-      settings=Settings(
-        provider_base_url="http://127.0.0.1:18001",
-        provider_api_key="test-token",
-      ),
+      tool_registry=tool_registry,
+      settings=settings,
       runner_registry=runner_registry,
-      location_grounder=location_grounder,
+      client_factory=client_factory,
     )
-    self._stub_client = stub_client
+    self.profile_response_service = ProfileResponseService(
+      model_registry_service=self.model_registry_service,
+      agent_profile_service=self.agent_profile_service,
+      tool_registry=tool_registry,
+      settings=settings,
+      location_grounder=location_grounder or StubLocationGrounder([]),
+      runner_registry=runner_registry,
+      client_factory=client_factory,
+    )
 
-  def _build_client_for_model(self, model):
-    _ = model
-    return self._stub_client
+  def __getattr__(self, name):
+    for service in (
+      self.model_registry_service,
+      self.agent_profile_service,
+      self.benchmark_service,
+      self.profile_response_service,
+    ):
+      if hasattr(service, name):
+        return getattr(service, name)
+    raise AttributeError(name)
 
 
 class MissingLangChainRunner(BenchmarkRunner):

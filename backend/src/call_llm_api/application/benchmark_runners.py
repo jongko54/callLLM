@@ -22,7 +22,7 @@ from call_llm_api.domain.models import (
   ToolFunctionCall,
   tool_result_to_message,
 )
-from call_llm_api.infrastructure.llm.openai_compatible import OpenAICompatibleClient
+from call_llm_api.infrastructure.llm.base import LLMProvider
 from call_llm_api.infrastructure.tools.registry import ToolRegistry
 
 FRAMEWORK_INSTALL_HINT = 'pip install -e ".[frameworks]"'
@@ -46,7 +46,7 @@ FRAMEWORK_PACKAGE_REQUIREMENTS: dict[AgentFramework, tuple[str, ...]] = {
 
 @dataclass(slots=True)
 class BenchmarkRunnerContext:
-  client: OpenAICompatibleClient
+  client: LLMProvider
   model: ModelRegistryRecord
   profile: AgentProfileRecord
   case: BenchmarkCaseRecord
