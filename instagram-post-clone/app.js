@@ -457,6 +457,1029 @@ const EXPLAIN_DETAILS = {
   },
 };
 
+const EXPLAIN_PURPOSE_DETAILS = {
+  "direct-chat": {
+    whyNeeded: [
+      "새 모델을 붙였을 때 가장 먼저 확인해야 하는 기준선입니다. 검색, 도구, 프레임워크 adapter가 섞이면 모델 자체의 답변 품질과 호출 안정성을 분리해서 보기 어렵습니다.",
+      "프롬프트만 바꿨을 때 결과가 어떻게 변하는지 빠르게 검증할 수 있습니다. 같은 모델에서 system prompt, temperature, expected check의 영향을 확인하기 좋습니다.",
+      "RAG나 Tool Agent가 실패했을 때 문제 원인이 모델 호출인지, 문맥 조립인지, 도구 실행인지 좁히는 비교군으로 필요합니다.",
+      "짧은 답변, 요약, 일반 생성처럼 외부 근거가 필요 없는 흐름에서는 복잡한 orchestration보다 낮은 지연 시간과 단순한 trace가 더 중요합니다.",
+    ],
+    features: [
+      "사용자 메시지와 profile system prompt를 provider messages로 변환합니다.",
+      "선택한 모델의 base URL, served model name, generation params를 반영해 OpenAI-compatible chat completion 요청을 만듭니다.",
+      "응답 텍스트, usage, latency, request preview를 공통 결과 형식으로 저장합니다.",
+      "Benchmark와 Response 화면 양쪽에서 가장 단순한 실행 경로로 동작합니다.",
+      "다른 전략과 비교할 수 있도록 trace를 최소 이벤트 중심으로 남깁니다.",
+    ],
+  },
+  "rag-context": {
+    whyNeeded: [
+      "모델이 학습하지 않았거나 최신이 아닌 정보를 답해야 할 때, 답변을 사용자가 제공한 근거에 묶기 위해 필요합니다.",
+      "내부 문서, 제품 스펙, 회의 메모처럼 모델이 임의로 추측하면 안 되는 지식은 prompt 옆에 별도 context로 관리해야 합니다.",
+      "Direct Chat만 쓰면 그럴듯하지만 근거 없는 답변이 나올 수 있으므로, 사실 기반 답변의 재현성과 검토 가능성을 높입니다.",
+      "나중에 벡터 검색, 문서 ingest, reranker를 붙이더라도 UI와 runner가 context_documents를 다루는 기본 흐름이 먼저 필요합니다.",
+    ],
+    features: [
+      "Browse/Response 화면의 Context 입력값을 context_documents metadata로 저장합니다.",
+      "runner가 context를 Grounded context 섹션으로 조립해 system prompt에 주입합니다.",
+      "근거가 부족하면 모른다고 말하도록 response mode prompt와 함께 모델 행동을 제한합니다.",
+      "Results 화면에서 실제 요청에 들어간 문맥을 request preview로 확인할 수 있게 합니다.",
+      "문서 기반 답변 품질, latency, token 증가 영향을 Direct Chat과 비교할 수 있게 합니다.",
+    ],
+  },
+  "tool-agent": {
+    whyNeeded: [
+      "현재 시간, 계산, 외부 API 조회처럼 모델 내부 지식만으로 답하면 안 되는 작업을 처리하기 위해 필요합니다.",
+      "모델이 모든 일을 직접 생성하게 두면 실제 상태와 다른 답을 만들 수 있으므로, 서버가 검증된 도구만 실행하는 경계가 필요합니다.",
+      "한 번의 질문 안에서 판단, 도구 호출, 결과 해석, 최종 답변이 이어지는 agent 흐름을 실험할 수 있습니다.",
+      "도구 호출 가능 모델과 불가능 모델을 분리해 capability 차이를 명확히 보여줍니다.",
+    ],
+    features: [
+      "모델 요청에 tools schema와 tool_choice:auto를 포함합니다.",
+      "assistant의 tool_calls를 읽고 JSON arguments를 검증한 뒤 ToolRegistry에 등록된 도구만 실행합니다.",
+      "도구 실행 결과를 role:tool 메시지로 다시 대화에 넣고 모델을 재호출합니다.",
+      "max_steps 안에서 assistant/tool loop를 관리하고 실패 조건을 trace에 남깁니다.",
+      "도구명, 입력값, 실행 결과, 최종 답변을 Results 화면에서 추적 가능하게 만듭니다.",
+    ],
+  },
+  "custom-runtime": {
+    whyNeeded: [
+      "프레임워크 의존성 없이 항상 동작하는 내부 실행 경로가 있어야 서비스가 기본 기능을 잃지 않습니다.",
+      "LangChain, LangGraph, LlamaIndex 같은 adapter가 만든 차이를 비교하려면 callLLM 자체 기준 runtime이 필요합니다.",
+      "payload shape, trace format, error handling을 직접 통제할 수 있어 디버깅과 운영 예측성이 높습니다.",
+      "단순 호출이나 가벼운 RAG 주입은 큰 프레임워크를 거치지 않는 편이 latency와 이해 비용 면에서 유리합니다.",
+    ],
+    features: [
+      "profile과 model 설정을 합쳐 provider payload를 직접 생성합니다.",
+      "direct, rag, tool 전략을 하나의 내부 runner에서 처리합니다.",
+      "OpenAI-compatible endpoint 호출, provider 오류 변환, usage/latency 기록을 담당합니다.",
+      "tool strategy에서는 ToolRegistry 기반 loop를 직접 수행합니다.",
+      "다른 framework runner와 같은 BenchmarkRunnerResult 형식으로 결과를 반환합니다.",
+    ],
+  },
+  "langchain-runtime": {
+    whyNeeded: [
+      "LangChain 기반 앱으로 확장하거나 이관할 때 동일한 모델/profile을 LangChain 방식으로 검증하기 위해 필요합니다.",
+      "모델 provider 교체, tool binding, message abstraction을 프레임워크 표준 인터페이스로 다룰 수 있습니다.",
+      "Custom Runtime과 LangChain adapter의 응답 차이, metadata 차이, overhead를 벤치마크로 비교할 수 있습니다.",
+      "이미 LangChain 생태계의 retriever, tool, chain을 쓰는 코드와 연결할 확장 지점을 제공합니다.",
+    ],
+    features: [
+      "ChatOpenAI를 OpenAI-compatible endpoint에 연결합니다.",
+      "callLLM profile messages를 LangChain message 형식으로 변환해 실행합니다.",
+      "tool profile에서는 LangChain tool binding 흐름을 사용해 도구 호출을 비교합니다.",
+      "AIMessage, usage metadata, response metadata를 raw_output에 보존합니다.",
+      "LangChain dependency가 없거나 사용할 수 없으면 profile을 비활성 상태로 표시할 수 있습니다.",
+    ],
+  },
+  "langgraph-runtime": {
+    whyNeeded: [
+      "단순한 한 번의 모델 호출을 넘어 상태 기반 agent 흐름을 안정적으로 표현하기 위해 필요합니다.",
+      "도구 호출, 재시도, 승인, 종료 조건처럼 단계가 늘어나는 순간 if문 중심 구현은 흐름을 추적하기 어려워집니다.",
+      "각 단계를 노드와 엣지로 나누면 어디서 멈췄는지, 어떤 상태가 다음 단계로 넘어갔는지 검토하기 쉽습니다.",
+      "장기적으로 checkpoint, human-in-the-loop, branch retry 같은 운영 제어를 붙이기 좋은 구조를 제공합니다.",
+    ],
+    features: [
+      "agent 상태를 그래프 state로 관리합니다.",
+      "모델 호출, 도구 실행, 조건 분기, 종료 판단을 노드 단위로 표현합니다.",
+      "tool agent와 비슷한 multi-step 흐름을 더 명시적인 구조로 실행합니다.",
+      "노드별 실행 결과와 상태 변화를 trace 관점에서 확인할 수 있게 합니다.",
+      "복잡한 agent 실험을 Custom Runtime과 같은 결과 형식으로 비교합니다.",
+    ],
+  },
+  "llamaindex-runtime": {
+    whyNeeded: [
+      "문서와 지식 베이스 중심의 질의응답을 실험하려면 RAG에 특화된 데이터 레이어가 필요합니다.",
+      "현재는 context 주입 baseline이지만, 이후 index, node parser, retriever를 붙이는 자연스러운 확장 경로가 됩니다.",
+      "LlamaIndex 방식의 문맥 조립과 Custom RAG 방식의 차이를 같은 화면에서 비교할 수 있습니다.",
+      "문서 기반 앱에서 모델 호출보다 문서 ingest와 검색 품질이 더 중요해질 때 사용할 기준점을 만듭니다.",
+    ],
+    features: [
+      "OpenAILike 연결로 등록된 OpenAI-compatible 모델을 호출합니다.",
+      "context documents를 prompt에 반영해 문서 기반 답변처럼 실행합니다.",
+      "completion 결과를 output_text, raw_output, trace로 정규화합니다.",
+      "RAG profile과 함께 문맥 주입 방식의 차이를 확인할 수 있게 합니다.",
+      "향후 index 저장소, retriever, query engine을 붙일 수 있는 실행 lane을 제공합니다.",
+    ],
+  },
+  "model-registry-service": {
+    whyNeeded: [
+      "UI와 실행 코드가 모델 정보를 제각각 들고 있으면 base URL, served model name, capability가 쉽게 어긋납니다.",
+      "모델마다 chat 지원 여부, tool calling 지원 여부가 다르므로 실행 전에 capability를 확인할 중앙 지점이 필요합니다.",
+      "새 모델을 추가하거나 endpoint를 바꿀 때 서비스 전체를 수정하지 않고 registry 데이터만 갱신할 수 있어야 합니다.",
+      "health probe가 있어야 모델 서버가 살아 있는지, 실제 served model이 노출되는지 빠르게 판단할 수 있습니다.",
+    ],
+    features: [
+      "모델 id, 표시 이름, provider, base_url, served_model_name을 관리합니다.",
+      "chat_completions, tool_calling 같은 capability 정보를 제공합니다.",
+      "upstream /v1/models probe로 모델 서버 상태와 노출 모델을 확인합니다.",
+      "provider client를 만들 때 필요한 설정 데이터를 공급합니다.",
+      "Browse, Response, Benchmark에서 공통으로 사용할 모델 목록의 원천이 됩니다.",
+    ],
+  },
+  "agent-profile-service": {
+    whyNeeded: [
+      "모델만 선택해서는 어떤 방식으로 답변할지 알 수 없으므로 전략, 프레임워크, system prompt를 묶은 profile이 필요합니다.",
+      "Direct, RAG, Tool Agent의 실행 조건과 요구 capability가 다르기 때문에 profile 단위 검증이 필요합니다.",
+      "UI에서 library/app 선택에 따라 실행 가능한 profile만 보여주려면 profile metadata가 중앙에서 관리되어야 합니다.",
+      "새 agent 전략을 추가할 때 route나 runner 전체를 바꾸지 않고 profile 정의를 늘리는 구조가 필요합니다.",
+    ],
+    features: [
+      "strategy_kind, framework, system_prompt, tool_names, generation_defaults를 하나의 profile로 관리합니다.",
+      "모델이 profile 요구사항을 만족하는지 실행 전에 검증합니다.",
+      "library_ids 같은 metadata로 UI 카드와 profile을 연결합니다.",
+      "enabled 상태를 통해 아직 사용할 수 없는 profile을 실행 후보에서 제외합니다.",
+      "Browse와 Response 화면의 profile 선택 목록을 구성하는 기준 데이터를 제공합니다.",
+    ],
+  },
+  "profile-response-service": {
+    whyNeeded: [
+      "Response 화면은 벤치마크가 아니라 실제 대화에 가까운 빠른 응답 흐름이므로 별도 서비스 경계가 필요합니다.",
+      "선택한 model/profile, grounding mode, 대화 이력, context를 한 번에 해석하는 orchestration 지점이 필요합니다.",
+      "streaming이 가능한 경우와 불가능한 경우를 같은 UI에서 처리하려면 fallback 정책이 중앙에 있어야 합니다.",
+      "사용자 대화에서는 identity, 위치, context override처럼 benchmark와 다른 UX 보정이 필요할 수 있습니다.",
+    ],
+    features: [
+      "model_id와 profile_id를 resolve하고 실행 가능한 조합인지 확인합니다.",
+      "response-page metadata와 grounding_mode를 읽어 prompt/context 조립을 결정합니다.",
+      "custom direct profile은 SSE streaming으로 delta 이벤트를 보냅니다.",
+      "streaming이 맞지 않는 profile은 일반 profile response JSON 호출로 fallback합니다.",
+      "대화 이력, context documents, 선택 library/app 정보를 runner 입력으로 연결합니다.",
+    ],
+  },
+  "benchmark-service": {
+    whyNeeded: [
+      "여러 모델과 profile을 같은 prompt로 비교하려면 suite, case, run, result를 일관된 도메인 구조로 관리해야 합니다.",
+      "실행 로직과 결과 저장/집계를 분리해야 runner가 늘어나도 history와 Results 화면이 흔들리지 않습니다.",
+      "latency, pass/fail, output, trace를 남겨야 모델 품질과 운영 비용을 나중에 다시 검토할 수 있습니다.",
+      "단발성 채팅이 아니라 반복 가능한 비교 실험을 만들기 위해 필요합니다.",
+    ],
+    features: [
+      "benchmark suite와 case를 생성하고 저장합니다.",
+      "선택된 model/profile 조합별 run을 만들고 runner 실행을 호출합니다.",
+      "case별 result, latency, score, raw output, trace preview를 기록합니다.",
+      "run summary와 benchmark history를 Results 화면에 제공할 형태로 집계합니다.",
+      "provider 오류나 runner 예외도 result로 저장해 실패 원인을 비교할 수 있게 합니다.",
+    ],
+  },
+  "benchmark-runner": {
+    whyNeeded: [
+      "프레임워크마다 호출 방식은 다르지만 BenchmarkService가 그 차이를 모두 알면 서비스가 빠르게 복잡해집니다.",
+      "Custom, LangChain, LangGraph, LlamaIndex를 같은 prompt로 비교하려면 공통 runner 인터페이스가 필요합니다.",
+      "새 framework를 추가할 때 benchmark 도메인 로직을 건드리지 않고 실행기만 추가할 수 있어야 합니다.",
+      "request preview와 trace를 runner가 직접 남겨야 프레임워크별 message 조립 차이를 디버깅할 수 있습니다.",
+    ],
+    features: [
+      "profile.framework 값에 맞는 runner를 선택합니다.",
+      "각 framework 방식으로 provider 호출, tool loop, context 조립을 수행합니다.",
+      "출력 텍스트, raw output, usage, latency, trace를 BenchmarkRunnerResult로 통일합니다.",
+      "request.built, assistant.message, tool.completed 같은 실행 이벤트를 기록합니다.",
+      "framework dependency 오류나 provider 실패를 공통 오류 형식으로 반환합니다.",
+    ],
+  },
+};
+
+const EXPLAIN_PROCESS_DETAILS = {
+  "direct-chat": {
+    scenario: "사용자가 “이 제품 설명을 세 문장으로 요약해줘”라고 묻는 경우",
+    input: "입력: 사용자 질문 + direct-chat profile system prompt + 선택 모델",
+    steps: [
+      {
+        title: "요청 수집",
+        body: "Browse 또는 Response 화면에서 사용자의 질문과 선택된 모델, profile을 읽습니다.",
+      },
+      {
+        title: "메시지 생성",
+        body: "system prompt와 user message를 OpenAI-compatible messages 배열로 만듭니다.",
+      },
+      {
+        title: "모델 호출",
+        body: "검색 문맥이나 도구 없이 선택 모델의 chat completions endpoint로 바로 보냅니다.",
+      },
+      {
+        title: "응답 정리",
+        body: "assistant 답변, latency, usage, request preview를 공통 결과 형식으로 변환합니다.",
+      },
+      {
+        title: "화면 반영",
+        body: "Response에는 답변을 표시하고, Benchmark에서는 Results 비교 행에 저장합니다.",
+      },
+    ],
+    result: "모델 자체의 기본 답변 품질과 속도를 가장 단순한 기준선으로 확인할 수 있습니다.",
+  },
+  "rag-context": {
+    scenario: "사용자가 “우리 환불 정책 기준으로 답해줘”라고 묻고 정책 문서를 Context에 붙이는 경우",
+    input: "입력: 질문 + Context 문서 조각 + rag-context profile",
+    steps: [
+      {
+        title: "문맥 저장",
+        body: "Context 입력값을 줄 단위 문서 조각으로 정리해 context_documents metadata에 넣습니다.",
+      },
+      {
+        title: "근거 프롬프트 생성",
+        body: "runner가 system prompt 안에 Grounded context 섹션을 만들고 문서 조각을 합칩니다.",
+      },
+      {
+        title: "질문 결합",
+        body: "사용자 질문은 user message로 유지하고, 근거는 system 영역에 배치합니다.",
+      },
+      {
+        title: "모델 답변",
+        body: "모델은 주어진 근거를 우선해서 답하고, 근거가 부족하면 추측을 줄이도록 유도됩니다.",
+      },
+      {
+        title: "근거 확인",
+        body: "Results의 request preview에서 어떤 context가 실제 요청에 들어갔는지 검토합니다.",
+      },
+    ],
+    result: "답변이 모델 기억이 아니라 사용자가 넣은 문서 근거에 묶여 재현성과 검토 가능성이 올라갑니다.",
+  },
+  "tool-agent": {
+    scenario: "사용자가 “현재 시간을 확인해서 마감까지 몇 시간 남았는지 알려줘”라고 묻는 경우",
+    input: "입력: 사용자 질문 + tool-agent profile + 등록된 tool schema",
+    steps: [
+      {
+        title: "도구 목록 전달",
+        body: "모델 요청 payload에 서버가 허용한 tools schema와 tool_choice:auto를 붙입니다.",
+      },
+      {
+        title: "도구 호출 결정",
+        body: "모델이 직접 답하기 어렵다고 판단하면 assistant message에 tool_calls를 반환합니다.",
+      },
+      {
+        title: "도구 실행",
+        body: "ToolRegistry가 tool 이름과 JSON arguments를 검증하고 서버에서 실제 도구를 실행합니다.",
+      },
+      {
+        title: "결과 재주입",
+        body: "도구 결과를 role:tool 메시지로 대화에 추가한 뒤 모델을 다시 호출합니다.",
+      },
+      {
+        title: "최종 답변",
+        body: "모델이 도구 결과를 읽고 사용자가 이해할 수 있는 최종 문장으로 정리합니다.",
+      },
+    ],
+    result: "모델이 추측하지 않고 서버가 실행한 실제 도구 결과를 바탕으로 답변합니다.",
+  },
+  "custom-runtime": {
+    scenario: "같은 prompt를 Custom Runtime으로 먼저 실행해 프레임워크 없는 기준 성능을 보는 경우",
+    input: "입력: model 설정 + profile 설정 + benchmark case",
+    steps: [
+      {
+        title: "설정 병합",
+        body: "모델 default params, profile generation defaults, run params를 우선순위에 맞게 합칩니다.",
+      },
+      {
+        title: "전략 선택",
+        body: "profile.strategy_kind에 따라 direct, rag, tool 중 필요한 내부 실행 로직을 고릅니다.",
+      },
+      {
+        title: "payload 작성",
+        body: "callLLM 코드가 직접 messages, model, temperature, tools 등을 포함한 요청을 만듭니다.",
+      },
+      {
+        title: "provider 호출",
+        body: "OpenAI-compatible endpoint로 HTTP 요청을 보내고 provider 오류를 공통 오류로 변환합니다.",
+      },
+      {
+        title: "trace 반환",
+        body: "응답, usage, latency, request preview, 실행 이벤트를 BenchmarkRunnerResult로 반환합니다.",
+      },
+    ],
+    result: "외부 framework 영향 없이 callLLM 내부 로직만으로 모델 호출 결과를 확인합니다.",
+  },
+  "langchain-runtime": {
+    scenario: "기존 LangChain 앱으로 옮기기 전에 같은 profile이 LangChain 방식에서도 잘 도는지 보는 경우",
+    input: "입력: callLLM messages + LangChain ChatOpenAI adapter + optional tools",
+    steps: [
+      {
+        title: "메시지 변환",
+        body: "callLLM의 system/user/tool 메시지를 LangChain message 객체로 맞춥니다.",
+      },
+      {
+        title: "ChatOpenAI 구성",
+        body: "등록된 base URL, served model name, api key로 ChatOpenAI client를 만듭니다.",
+      },
+      {
+        title: "도구 연결",
+        body: "tool profile이면 LangChain tool binding 방식으로 사용 가능한 도구를 붙입니다.",
+      },
+      {
+        title: "invoke 실행",
+        body: "LangChain runtime이 모델을 호출하고 AIMessage와 response metadata를 반환합니다.",
+      },
+      {
+        title: "결과 정규화",
+        body: "LangChain 응답을 callLLM 공통 output_text/raw_output/trace 구조로 바꿉니다.",
+      },
+    ],
+    result: "같은 모델과 profile을 LangChain adapter 경로에서 실행했을 때 차이와 호환성을 비교할 수 있습니다.",
+  },
+  "langgraph-runtime": {
+    scenario: "질문에 따라 도구를 부를지, 다시 물어볼지, 답변할지 상태 기반으로 나눠야 하는 경우",
+    input: "입력: 초기 agent state + graph node 정의 + 종료 조건",
+    steps: [
+      {
+        title: "상태 시작",
+        body: "사용자 질문, 대화 이력, context, 실행 횟수를 graph state에 넣습니다.",
+      },
+      {
+        title: "노드 실행",
+        body: "planner 또는 model node가 현재 state를 읽고 다음 상태를 반환합니다.",
+      },
+      {
+        title: "분기 판단",
+        body: "도구 호출이 필요하면 tool node로, 충분하면 answer node로 이동합니다.",
+      },
+      {
+        title: "상태 갱신",
+        body: "도구 결과나 모델 응답을 state에 추가하고 다음 노드가 이어서 읽게 합니다.",
+      },
+      {
+        title: "종료",
+        body: "최종 답변이 만들어지거나 max_steps에 도달하면 그래프 실행을 멈춥니다.",
+      },
+    ],
+    result: "복잡한 agent 흐름을 노드와 엣지 단위로 추적하면서 재시도, 승인, 분기 확장을 준비할 수 있습니다.",
+  },
+  "llamaindex-runtime": {
+    scenario: "제품 FAQ나 문서 조각을 기반으로 질문에 답하는 문서 중심 앱을 실험하는 경우",
+    input: "입력: 질문 + 문서 context + LlamaIndex OpenAILike client",
+    steps: [
+      {
+        title: "문서 준비",
+        body: "현재는 사용자가 넣은 context documents를 문서 기반 입력으로 사용합니다.",
+      },
+      {
+        title: "프롬프트 구성",
+        body: "질문과 문맥을 LlamaIndex runner가 사용할 prompt 형태로 정리합니다.",
+      },
+      {
+        title: "OpenAILike 호출",
+        body: "등록된 OpenAI-compatible endpoint를 LlamaIndex OpenAILike 연결로 호출합니다.",
+      },
+      {
+        title: "응답 변환",
+        body: "completion 결과를 callLLM의 output_text, raw_output, trace 형식으로 맞춥니다.",
+      },
+      {
+        title: "확장 지점 확인",
+        body: "나중에 index, retriever, node parser를 붙일 위치를 같은 runtime lane에서 확인합니다.",
+      },
+    ],
+    result: "문서 기반 RAG 앱으로 확장하기 전, LlamaIndex 경로의 기본 호출과 문맥 조립 흐름을 비교합니다.",
+  },
+  "model-registry-service": {
+    scenario: "새 Qwen endpoint를 추가하고 Browse 화면에서 선택 가능하게 만드는 경우",
+    input: "입력: 모델 이름 + base URL + served model name + capability 정보",
+    steps: [
+      {
+        title: "모델 등록",
+        body: "표시 이름, provider, base_url, served_model_name, default params를 record로 저장합니다.",
+      },
+      {
+        title: "상태 확인",
+        body: "probe가 upstream /v1/models를 호출해 실제 served model이 노출되는지 확인합니다.",
+      },
+      {
+        title: "기능 판단",
+        body: "chat_completions, tool_calling 같은 capability 값을 모델 실행 조건에 사용합니다.",
+      },
+      {
+        title: "client 설정 공급",
+        body: "실행 서비스가 provider client를 만들 수 있도록 base URL과 model 값을 제공합니다.",
+      },
+      {
+        title: "UI 반영",
+        body: "Browse, Response, Benchmark 화면의 모델 카드와 선택 목록에 같은 데이터를 사용합니다.",
+      },
+    ],
+    result: "모델 정보가 한곳에서 관리되어 endpoint 변경과 capability 검증이 일관되게 동작합니다.",
+  },
+  "agent-profile-service": {
+    scenario: "사용자가 Tool Agent profile을 골랐는데 선택 모델이 tool calling을 지원하는지 확인하는 경우",
+    input: "입력: profile_id + model_id + library/app 선택값",
+    steps: [
+      {
+        title: "profile 조회",
+        body: "strategy_kind, framework, system_prompt, tool_names, generation_defaults를 읽습니다.",
+      },
+      {
+        title: "UI 필터링",
+        body: "선택된 library와 app strategy에 맞는 enabled profile만 목록에 보여줍니다.",
+      },
+      {
+        title: "모델 검증",
+        body: "tool_names가 있거나 tool strategy이면 모델 capability.tool_calling을 확인합니다.",
+      },
+      {
+        title: "실행 허용",
+        body: "조건을 만족하면 BenchmarkRunner 또는 ProfileResponseService로 profile을 넘깁니다.",
+      },
+      {
+        title: "실패 차단",
+        body: "지원하지 않는 조합은 실행 전에 막아 provider 오류나 잘못된 결과를 줄입니다.",
+      },
+    ],
+    result: "사용자가 고른 전략이 실제 모델 능력과 맞는지 실행 전에 검증됩니다.",
+  },
+  "profile-response-service": {
+    scenario: "Response 화면에서 context를 넣고 선택 profile로 실시간 답변을 받는 경우",
+    input: "입력: 대화 이력 + selected model/profile + grounding mode + context",
+    steps: [
+      {
+        title: "선택값 해석",
+        body: "model_id와 profile_id를 resolve하고 현재 세션의 대화 이력을 읽습니다.",
+      },
+      {
+        title: "grounding 결정",
+        body: "grounding_mode와 metadata.source에 따라 context 주입 또는 override 여부를 판단합니다.",
+      },
+      {
+        title: "runner 입력 생성",
+        body: "대화 메시지, context_documents, profile 설정을 runner가 실행할 case 형태로 만듭니다.",
+      },
+      {
+        title: "응답 방식 선택",
+        body: "custom direct profile이면 SSE streaming을 사용하고, 아니면 일반 JSON 응답으로 fallback합니다.",
+      },
+      {
+        title: "UI 업데이트",
+        body: "stream delta 또는 최종 JSON 결과를 Response thread에 assistant 메시지로 반영합니다.",
+      },
+    ],
+    result: "벤치마크가 아닌 실제 대화 화면에서도 선택한 모델과 profile 흐름이 그대로 적용됩니다.",
+  },
+  "benchmark-service": {
+    scenario: "두 개 모델과 세 개 profile을 같은 질문으로 비교 실행하는 경우",
+    input: "입력: suite + case + selected models + selected profiles",
+    steps: [
+      {
+        title: "suite 생성",
+        body: "하나의 비교 실험 묶음과 그 안의 prompt/context/expected case를 만듭니다.",
+      },
+      {
+        title: "run 구성",
+        body: "모델과 profile 조합마다 run을 만들고 실행 대상 case를 연결합니다.",
+      },
+      {
+        title: "runner 호출",
+        body: "각 조합에 맞는 BenchmarkRunner를 찾아 case를 실행합니다.",
+      },
+      {
+        title: "result 저장",
+        body: "출력, latency, score, trace, provider 오류를 case별 result로 저장합니다.",
+      },
+      {
+        title: "history 집계",
+        body: "Results 화면이 읽을 수 있도록 run summary와 비교 snapshot을 구성합니다.",
+      },
+    ],
+    result: "같은 조건에서 모델/profile 조합별 품질, 속도, 실패 원인을 다시 볼 수 있는 기록이 남습니다.",
+  },
+  "benchmark-runner": {
+    scenario: "같은 질문을 Custom Runtime과 LangChain Runtime에서 각각 실행해 차이를 보는 경우",
+    input: "입력: runner context + profile.framework + benchmark case",
+    steps: [
+      {
+        title: "runner 선택",
+        body: "BenchmarkRunnerRegistry가 profile.framework 값을 보고 custom/langchain/langgraph/llamaindex 중 하나를 고릅니다.",
+      },
+      {
+        title: "요청 구성",
+        body: "선택된 runner가 자기 방식으로 messages, context, tools, generation params를 조립합니다.",
+      },
+      {
+        title: "runtime 실행",
+        body: "framework별 client나 graph를 통해 실제 모델 호출 또는 tool loop를 수행합니다.",
+      },
+      {
+        title: "trace 기록",
+        body: "request.built, assistant.message, tool.completed 같은 단계 이벤트를 남깁니다.",
+      },
+      {
+        title: "공통 결과 반환",
+        body: "서로 다른 raw output을 output_text, usage, latency, trace가 있는 결과 객체로 통일합니다.",
+      },
+    ],
+    result: "프레임워크가 달라도 BenchmarkService와 UI는 같은 결과 구조로 비교할 수 있습니다.",
+  },
+};
+
+const EXPLAIN_DATA_FLOW_DETAILS = {
+  "direct-chat": {
+    receives: [
+      "model_id: 사용자가 선택한 모델 id",
+      "profile_id: direct-chat",
+      "messages: 현재 user 질문 또는 대화 이력",
+      "generation params: temperature, max_tokens 같은 생성 옵션",
+    ],
+    transforms: [
+      "AgentProfileService가 profile의 system_prompt를 가져옵니다.",
+      "ModelRegistryService가 served_model_name과 base_url을 제공합니다.",
+      "CustomBenchmarkRunner가 system/user 메시지를 provider payload로 바꿉니다.",
+      "provider 응답을 output_text, usage, latency, trace로 정규화합니다.",
+    ],
+    returns: [
+      "Response 화면: assistant message",
+      "Benchmark 결과: case result",
+      "Results 화면: output, latency, request preview",
+    ],
+    beforeLabel: "UI에서 들어오는 값",
+    before: `{
+  "model_id": "qwen-local",
+  "profile_id": "direct-chat",
+  "messages": [
+    { "role": "user", "content": "이 제품 설명을 세 문장으로 요약해줘" }
+  ],
+  "temperature": 0.7
+}`,
+    afterLabel: "모델 호출 후 공통 결과",
+    after: `{
+  "provider_request": {
+    "model": "qwen3:8b",
+    "messages": [
+      { "role": "system", "content": "You are a helpful assistant..." },
+      { "role": "user", "content": "이 제품 설명을 세 문장으로 요약해줘" }
+    ],
+    "temperature": 0.7
+  },
+  "result": {
+    "output_text": "제품의 핵심 기능은 ...",
+    "latency_ms": 842,
+    "trace": ["request.built", "assistant.message"]
+  }
+}`,
+  },
+  "rag-context": {
+    receives: [
+      "question: 사용자의 질문",
+      "context_documents: 사용자가 붙인 문서/메모 조각",
+      "profile_id: rag-context",
+      "expected 또는 keywords: 벤치마크 검증 기준",
+    ],
+    transforms: [
+      "Context 입력을 빈 줄과 불필요한 공백 기준으로 정리합니다.",
+      "정리된 context_documents를 Grounded context system 섹션으로 합칩니다.",
+      "질문은 user message로 유지하고 근거는 system message에 넣습니다.",
+      "결과에는 어떤 문맥이 들어갔는지 request preview를 남깁니다.",
+    ],
+    returns: [
+      "근거 기반 assistant answer",
+      "context가 포함된 request preview",
+      "pass/fail score에 사용할 output_text",
+    ],
+    beforeLabel: "질문과 문맥",
+    before: `{
+  "prompt": "환불 가능 기간이 어떻게 돼?",
+  "context_documents": [
+    "환불은 결제일로부터 7일 이내 가능하다.",
+    "사용 이력이 있으면 환불 검토가 필요하다."
+  ],
+  "profile_id": "rag-context"
+}`,
+    afterLabel: "Grounded prompt로 바뀐 요청",
+    after: `{
+  "messages": [
+    {
+      "role": "system",
+      "content": "Answer using only the grounded context.\\n\\nGrounded context:\\n1. 환불은 결제일로부터 7일 이내 가능하다.\\n2. 사용 이력이 있으면 환불 검토가 필요하다."
+    },
+    { "role": "user", "content": "환불 가능 기간이 어떻게 돼?" }
+  ],
+  "result": {
+    "output_text": "결제일로부터 7일 이내 환불 가능합니다. 사용 이력이 있으면 검토가 필요합니다.",
+    "trace": ["request.built", "assistant.message"]
+  }
+}`,
+  },
+  "tool-agent": {
+    receives: [
+      "user prompt: 도구가 필요할 수 있는 질문",
+      "tool_names: profile이 허용한 도구 목록",
+      "tools schema: 도구 이름, 설명, JSON arguments 구조",
+      "max_steps: 도구 loop 제한",
+    ],
+    transforms: [
+      "첫 모델 요청에 tools와 tool_choice:auto를 붙입니다.",
+      "모델이 tool_calls를 반환하면 arguments JSON을 파싱하고 검증합니다.",
+      "ToolRegistry가 허용된 도구만 실행하고 결과를 role:tool 메시지로 추가합니다.",
+      "tool 결과가 들어간 대화를 다시 모델에 보내 최종 답변을 받습니다.",
+    ],
+    returns: [
+      "final assistant answer",
+      "tool input/output trace",
+      "실패 시 ToolExecutionError 또는 provider error result",
+    ],
+    beforeLabel: "도구 실행 전 요청",
+    before: `{
+  "profile_id": "tool-agent",
+  "messages": [
+    { "role": "user", "content": "서울 현재 시간 기준으로 마감까지 몇 시간 남았어?" }
+  ],
+  "tools": ["get_current_time"],
+  "max_steps": 4
+}`,
+    afterLabel: "도구 호출과 최종 답변",
+    after: `{
+  "step_1_model_output": {
+    "tool_calls": [
+      {
+        "name": "get_current_time",
+        "arguments": { "timezone": "Asia/Seoul" }
+      }
+    ]
+  },
+  "tool_message": {
+    "role": "tool",
+    "content": "{ \\"now\\": \\"2026-04-22T15:00:00+09:00\\" }"
+  },
+  "final_result": {
+    "output_text": "현재 서울 시간은 15:00입니다. 마감이 18:00이면 3시간 남았습니다.",
+    "trace": ["request.built", "tool.completed", "assistant.message"]
+  }
+}`,
+  },
+  "custom-runtime": {
+    receives: [
+      "Runner context: model, profile, case, params",
+      "strategy_kind: direct, rag, tool 중 하나",
+      "model default_params와 profile generation_defaults",
+      "provider client 설정",
+    ],
+    transforms: [
+      "model 기본값, profile 기본값, 실행 params를 병합합니다.",
+      "strategy_kind에 맞춰 direct/rag/tool payload를 직접 조립합니다.",
+      "OpenAI-compatible provider 호출 결과를 공통 result 객체로 변환합니다.",
+      "provider 오류는 ProviderRequestError 같은 내부 오류 형식으로 감쌉니다.",
+    ],
+    returns: [
+      "BenchmarkRunnerResult",
+      "output_text, raw_output, usage",
+      "request preview와 실행 trace",
+    ],
+    beforeLabel: "runner에 들어온 context",
+    before: `{
+  "framework": "custom",
+  "strategy_kind": "rag",
+  "model": { "served_model_name": "gemma-4" },
+  "case": {
+    "input_messages": [{ "role": "user", "content": "정책 요약" }],
+    "metadata": { "context_documents": ["정책 문서 조각"] }
+  },
+  "params": { "temperature": 0.3 }
+}`,
+    afterLabel: "공통 runner 결과",
+    after: `{
+  "output_text": "정책의 핵심은 ...",
+  "raw_output": { "provider": "openai-compatible", "finish_reason": "stop" },
+  "usage": { "prompt_tokens": 312, "completion_tokens": 96 },
+  "trace": [
+    { "event": "request.built", "framework": "custom" },
+    { "event": "assistant.message" }
+  ]
+}`,
+  },
+  "langchain-runtime": {
+    receives: [
+      "callLLM message list",
+      "model connection data: base_url, api_key, served_model_name",
+      "profile framework: langchain",
+      "optional tools for tool profile",
+    ],
+    transforms: [
+      "plain message objects를 LangChain message 객체로 바꿉니다.",
+      "ChatOpenAI client를 OpenAI-compatible endpoint에 연결합니다.",
+      "tool profile이면 bind_tools 또는 유사 흐름으로 tool schema를 연결합니다.",
+      "AIMessage와 response_metadata를 callLLM raw_output으로 보존합니다.",
+    ],
+    returns: [
+      "BenchmarkRunnerResult",
+      "LangChain raw message metadata",
+      "custom runtime과 비교 가능한 output_text",
+    ],
+    beforeLabel: "callLLM 메시지",
+    before: `{
+  "framework": "langchain",
+  "messages": [
+    { "role": "system", "content": "Use concise answers." },
+    { "role": "user", "content": "요약해줘" }
+  ],
+  "model_config": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "qwen3:8b"
+  }
+}`,
+    afterLabel: "LangChain 실행 결과",
+    after: `{
+  "langchain_input": [
+    "SystemMessage(content='Use concise answers.')",
+    "HumanMessage(content='요약해줘')"
+  ],
+  "raw_output": {
+    "type": "AIMessage",
+    "content": "핵심은 ...",
+    "response_metadata": { "finish_reason": "stop" }
+  },
+  "output_text": "핵심은 ..."
+}`,
+  },
+  "langgraph-runtime": {
+    receives: [
+      "initial state: messages, context, steps",
+      "graph nodes: model, tool, answer 같은 단계",
+      "conditional edges: 다음 노드 선택 규칙",
+      "stop condition 또는 max_steps",
+    ],
+    transforms: [
+      "사용자 요청을 graph state에 넣고 첫 노드로 전달합니다.",
+      "각 노드가 state를 읽고 messages/tool_results/decision 값을 갱신합니다.",
+      "조건 엣지가 state를 보고 tool node 또는 answer node로 분기합니다.",
+      "마지막 state에서 final answer를 추출해 공통 result로 변환합니다.",
+    ],
+    returns: [
+      "최종 graph state",
+      "node 단위 trace",
+      "BenchmarkRunnerResult",
+    ],
+    beforeLabel: "초기 graph state",
+    before: `{
+  "state": {
+    "messages": [
+      { "role": "user", "content": "필요하면 도구를 써서 답해줘" }
+    ],
+    "tool_results": [],
+    "steps": 0
+  },
+  "entry_node": "planner"
+}`,
+    afterLabel: "노드를 지난 뒤 state",
+    after: `{
+  "state_after": {
+    "messages": [
+      { "role": "user", "content": "필요하면 도구를 써서 답해줘" },
+      { "role": "assistant", "content": "도구 결과를 보면 ..." }
+    ],
+    "tool_results": [{ "name": "lookup", "content": "검색 결과" }],
+    "steps": 3,
+    "final": true
+  },
+  "trace": ["planner", "tool", "answer"]
+}`,
+  },
+  "llamaindex-runtime": {
+    receives: [
+      "question: 사용자 질문",
+      "context documents 또는 향후 index query 결과",
+      "LlamaIndex OpenAILike 설정",
+      "profile generation defaults",
+    ],
+    transforms: [
+      "문서 조각을 LlamaIndex runner가 사용할 prompt context로 정리합니다.",
+      "OpenAILike client가 OpenAI-compatible endpoint로 completion을 요청합니다.",
+      "completion response를 callLLM output_text/raw_output 형식으로 맞춥니다.",
+      "향후 index/retriever가 붙으면 context_documents 자리에 검색 결과 node가 들어갑니다.",
+    ],
+    returns: [
+      "문서 기반 answer text",
+      "LlamaIndex raw completion metadata",
+      "request preview와 trace",
+    ],
+    beforeLabel: "문서 기반 질문",
+    before: `{
+  "framework": "llamaindex",
+  "question": "설치 요구사항은?",
+  "context_documents": [
+    "Node 20 이상이 필요하다.",
+    "환경 변수 API_BASE_URL을 설정한다."
+  ]
+}`,
+    afterLabel: "LlamaIndex prompt와 응답",
+    after: `{
+  "prompt": "Context:\\n- Node 20 이상이 필요하다.\\n- 환경 변수 API_BASE_URL을 설정한다.\\n\\nQuestion: 설치 요구사항은?",
+  "completion": "Node 20 이상과 API_BASE_URL 환경 변수 설정이 필요합니다.",
+  "output_text": "Node 20 이상과 API_BASE_URL 환경 변수 설정이 필요합니다."
+}`,
+  },
+  "model-registry-service": {
+    receives: [
+      "모델 등록 요청: name, provider, base_url",
+      "served_model_name: provider에 실제 전달할 모델명",
+      "capabilities: chat/tool 지원 여부",
+      "health probe 요청",
+    ],
+    transforms: [
+      "UI 표시용 name과 provider 호출용 served_model_name을 분리해 저장합니다.",
+      "api_key 같은 민감값은 외부 응답 dump에서 제외합니다.",
+      "probe_model이 upstream /v1/models 응답과 registry record를 비교합니다.",
+      "실행 서비스가 쓸 수 있게 provider client config를 구성합니다.",
+    ],
+    returns: [
+      "모델 카드 목록",
+      "capability 기반 실행 가능 여부",
+      "provider client 설정",
+      "probe health 상태",
+    ],
+    beforeLabel: "모델 등록 입력",
+    before: `{
+  "id": "qwen-local",
+  "name": "Qwen Local",
+  "provider": "ollama",
+  "base_url": "http://127.0.0.1:11434/v1",
+  "served_model_name": "qwen3:8b",
+  "capabilities": {
+    "chat_completions": true,
+    "tool_calling": false
+  }
+}`,
+    afterLabel: "서비스가 제공하는 모델 정보",
+    after: `{
+  "model_card": {
+    "id": "qwen-local",
+    "name": "Qwen Local",
+    "health": "healthy",
+    "can_run_chat": true,
+    "can_run_tool_agent": false
+  },
+  "client_config": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "qwen3:8b"
+  }
+}`,
+  },
+  "agent-profile-service": {
+    receives: [
+      "profile definition: strategy_kind, framework, system_prompt",
+      "tool_names: profile이 요구하는 도구",
+      "model capabilities",
+      "library/app filter metadata",
+    ],
+    transforms: [
+      "UI에서 선택 가능한 profile 목록을 enabled, library, app 조건으로 필터링합니다.",
+      "tool_names 또는 tool strategy가 있으면 tool_calling capability를 요구합니다.",
+      "profile.framework 값으로 runner 선택 키를 제공합니다.",
+      "profile.system_prompt와 generation_defaults를 실행 preset으로 묶습니다.",
+    ],
+    returns: [
+      "실행 가능한 profile 목록",
+      "선택 profile의 runner 조건",
+      "모델/profile 조합 검증 결과",
+    ],
+    beforeLabel: "profile과 모델 capability",
+    before: `{
+  "profile": {
+    "id": "tool-agent",
+    "strategy_kind": "tool",
+    "framework": "custom",
+    "tool_names": ["get_current_time"]
+  },
+  "model_capabilities": {
+    "chat_completions": true,
+    "tool_calling": false
+  }
+}`,
+    afterLabel: "검증 결과",
+    after: `{
+  "visible_in_ui": true,
+  "runnable": false,
+  "reason": "tool-agent profile requires tool_calling support",
+  "runner_key": "custom"
+}`,
+  },
+  "profile-response-service": {
+    receives: [
+      "session messages: 현재 대화 이력",
+      "selected model_id/profile_id",
+      "grounding_mode: raw, auto, grounded",
+      "context_documents와 response metadata",
+    ],
+    transforms: [
+      "model과 profile을 resolve하고 실행 가능 여부를 확인합니다.",
+      "grounding_mode에 따라 context를 넣거나 override를 건너뜁니다.",
+      "stream 가능한 custom direct 요청은 SSE 이벤트로 쪼갭니다.",
+      "stream이 맞지 않는 profile은 일반 JSON 응답으로 fallback합니다.",
+    ],
+    returns: [
+      "message.delta stream events",
+      "run.completed event",
+      "또는 final JSON response",
+      "Response thread에 붙일 assistant message",
+    ],
+    beforeLabel: "Response 화면 요청",
+    before: `{
+  "model_id": "gemma-local",
+  "profile_id": "rag-context",
+  "grounding_mode": "grounded",
+  "messages": [
+    { "role": "user", "content": "이 문서 기준으로 답해줘" }
+  ],
+  "context_documents": ["문서 조각 A", "문서 조각 B"]
+}`,
+    afterLabel: "화면으로 나가는 응답",
+    after: `{
+  "events_or_json": [
+    { "event": "run.started" },
+    { "event": "message.delta", "delta": "문서 기준으로는" },
+    { "event": "message.delta", "delta": " ..." },
+    { "event": "run.completed" }
+  ],
+  "thread_message": {
+    "role": "assistant",
+    "content": "문서 기준으로는 ..."
+  }
+}`,
+  },
+  "benchmark-service": {
+    receives: [
+      "suite request: 비교 실험 이름",
+      "case input: prompt, context, expected",
+      "selected model ids",
+      "selected profile ids",
+    ],
+    transforms: [
+      "suite와 case를 저장 가능한 도메인 객체로 만듭니다.",
+      "model/profile 조합마다 run을 생성합니다.",
+      "각 run에서 BenchmarkRunner를 호출하고 case result를 저장합니다.",
+      "expected check 또는 keyword check로 간단한 score를 계산합니다.",
+      "history snapshot으로 Results 화면 데이터를 구성합니다.",
+    ],
+    returns: [
+      "benchmark run summary",
+      "case results",
+      "latency/pass rate/history",
+      "비교 테이블에 필요한 snapshot",
+    ],
+    beforeLabel: "비교 실행 입력",
+    before: `{
+  "suite": "Refund policy comparison",
+  "case": {
+    "prompt": "환불 기간은?",
+    "context_documents": ["환불은 7일 이내 가능"],
+    "expected": "7일"
+  },
+  "models": ["qwen-local", "gemma-local"],
+  "profiles": ["direct-chat", "rag-context"]
+}`,
+    afterLabel: "Results가 읽는 history",
+    after: `{
+  "runs": [
+    {
+      "model_id": "qwen-local",
+      "profile_id": "rag-context",
+      "status": "completed",
+      "summary": { "pass_rate": 1, "avg_latency_ms": 920 }
+    }
+  ],
+  "results": [
+    {
+      "output_text": "환불은 7일 이내 가능합니다.",
+      "score": 1,
+      "trace_preview": ["request.built", "assistant.message"]
+    }
+  ]
+}`,
+  },
+  "benchmark-runner": {
+    receives: [
+      "BenchmarkRunnerContext",
+      "profile.framework: custom/langchain/langgraph/llamaindex",
+      "case input messages와 metadata",
+      "model provider client 설정",
+    ],
+    transforms: [
+      "framework 값으로 실제 runner를 선택합니다.",
+      "runner별 방식으로 messages, context, tools를 조립합니다.",
+      "provider 또는 framework client를 호출합니다.",
+      "runner마다 다른 raw output을 공통 result 구조로 맞춥니다.",
+    ],
+    returns: [
+      "BenchmarkRunnerResult",
+      "output_text와 raw_output",
+      "usage, latency, trace",
+      "실패 시 runner error result",
+    ],
+    beforeLabel: "runner 선택 전",
+    before: `{
+  "context": {
+    "profile": { "framework": "langchain", "strategy_kind": "direct" },
+    "case": { "input_messages": [{ "role": "user", "content": "비교해줘" }] },
+    "model": { "served_model_name": "qwen3:8b" }
+  }
+}`,
+    afterLabel: "runner 실행 후",
+    after: `{
+  "selected_runner": "LangChainBenchmarkRunner",
+  "result": {
+    "output_text": "비교 결과는 ...",
+    "raw_output": { "framework": "langchain", "message_type": "AIMessage" },
+    "usage": { "prompt_tokens": 128, "completion_tokens": 64 },
+    "trace": ["request.built", "assistant.message"]
+  }
+}`,
+  },
+};
+
 const SELECTION_MODES = {
   auto: "auto",
   manual: "manual",
@@ -2520,16 +3543,68 @@ function renderExplain() {
     .map((item) => `<span>${escapeHtml(item)}</span>`)
     .join("");
   const detail = EXPLAIN_DETAILS[selectedItem.id] || {};
+  const purpose = EXPLAIN_PURPOSE_DETAILS[selectedItem.id] || {};
+  const process = EXPLAIN_PROCESS_DETAILS[selectedItem.id] || {};
+  const dataFlow = EXPLAIN_DATA_FLOW_DETAILS[selectedItem.id] || {};
   const buildDetailList = (items) => {
     return (items || [])
       .map((item) => `<li>${escapeHtml(item)}</li>`)
       .join("");
   };
+  const processSteps = (process.steps || [])
+    .map((step, index) => `
+      <li class="explain-process-step">
+        <span class="process-step-marker">${String(index + 1).padStart(2, "0")}</span>
+        <div class="process-step-copy">
+          <strong>${escapeHtml(step.title)}</strong>
+          <span>${escapeHtml(step.body)}</span>
+        </div>
+      </li>
+    `)
+    .join("");
+  const dataFlowCards = [
+    { label: "받는 데이터", items: dataFlow.receives },
+    { label: "처리하면서 바뀌는 데이터", items: dataFlow.transforms },
+    { label: "내보내는 데이터", items: dataFlow.returns },
+  ].map((card) => `
+    <article class="explain-data-card">
+      <strong>${escapeHtml(card.label)}</strong>
+      <ul class="explain-bullet-list">${buildDetailList(card.items)}</ul>
+    </article>
+  `).join("");
 
   elements.explainDetail.innerHTML = `
     <article class="explain-detail-summary">
       <p>${escapeHtml(selectedItem.summary)}</p>
       <div class="logic-strip explain-detail-logic">${logicItems}</div>
+    </article>
+
+    <article class="history-detail-section explain-detail-section explain-process-section">
+      <span class="metric-label">예시 프로세스</span>
+      <div class="explain-process-example">
+        <strong>${escapeHtml(process.scenario || "예시 상황")}</strong>
+        <span>${escapeHtml(process.input || "")}</span>
+      </div>
+      <ol class="explain-process-rail">${processSteps}</ol>
+      <div class="explain-process-result">
+        <span>결과</span>
+        <p>${escapeHtml(process.result || "")}</p>
+      </div>
+    </article>
+
+    <article class="history-detail-section explain-detail-section explain-data-section">
+      <span class="metric-label">데이터 흐름 예시</span>
+      <div class="explain-data-flow-grid">${dataFlowCards}</div>
+      <div class="explain-data-snapshot-grid">
+        <div class="explain-data-snapshot">
+          <span>${escapeHtml(dataFlow.beforeLabel || "Before")}</span>
+          <pre class="debug-pre explain-data-pre">${escapeHtml(dataFlow.before || "")}</pre>
+        </div>
+        <div class="explain-data-snapshot">
+          <span>${escapeHtml(dataFlow.afterLabel || "After")}</span>
+          <pre class="debug-pre explain-data-pre">${escapeHtml(dataFlow.after || "")}</pre>
+        </div>
+      </div>
     </article>
 
     <section class="explain-detail-grid">
@@ -2540,6 +3615,17 @@ function renderExplain() {
       <article class="history-detail-section explain-detail-section">
         <span class="metric-label">When to choose</span>
         <div class="detail-copy">${escapeHtml(selectedItem.whenToUse)}</div>
+      </article>
+    </section>
+
+    <section class="explain-purpose-grid">
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">필요한 이유</span>
+        <ul class="explain-bullet-list">${buildDetailList(purpose.whyNeeded)}</ul>
+      </article>
+      <article class="history-detail-section explain-detail-section">
+        <span class="metric-label">주요 기능</span>
+        <ul class="explain-bullet-list">${buildDetailList(purpose.features)}</ul>
       </article>
     </section>
 
